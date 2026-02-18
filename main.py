@@ -110,6 +110,9 @@ class App:
         # Main Animation Loop
         print("Starting Animation Loop")
         while True:
+            # Force GC every frame to prevent buildup and long pauses
+            gc.collect() 
+            
             t0 = time.ticks_ms()
             
             # Logic Update (Only render if ON)

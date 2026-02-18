@@ -93,14 +93,14 @@ class WebServer:
         <button onclick="setEffect('Pulse')">Pulse</button>
     </div>
     <script>
-        async def updateStatus() {
+        async function updateStatus() {
             try {
                 let res = await fetch('/api/status');
                 let data = await res.json();
                 document.getElementById('status').innerText = JSON.stringify(data, null, 2);
             } catch(e) {}
         }
-        async def setEffect(name) {
+        async function setEffect(name) {
             await fetch('/api/config', {
                 method: 'POST',
                 body: JSON.stringify({effect: name})

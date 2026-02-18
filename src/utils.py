@@ -1,4 +1,6 @@
 import math
+import micropython
+
 
 def clamp(val, min_val, max_val):
     return max(min_val, min(val, max_val))
@@ -104,6 +106,7 @@ def blend_alpha(base_r, base_g, base_b, top_r, top_g, top_b, alpha):
     b = (top_b * alpha + base_b * inv_alpha) // 255
     return r, g, b
 
+@micropython.native
 def scale_buffer(buffer, scale):
     """
     Scale all values in buffer by scale (0.0 - 1.0).
@@ -111,11 +114,15 @@ def scale_buffer(buffer, scale):
     """
     if scale >= 1.0: return
     
-    # Integer math approximation for speed: scale * 256
-    # fp_scale = int(scale * 256)
-    # Using float is okay in MicroPython logic usually, but int is faster.
-    # Buffer is bytearray.
+    # Use fixed point for speed (scale * 256)
+    # 256 is 1 << 8
+    fp_scale = int(scale * 256)
     
-    for i in range(len(buffer)):
-        buffer[i] = int(buffer[i] * scale)
+    # buffer is bytearray, len(buffer) is efficient
+    l = len(buffer)
+    for i in range(l):
+        val = buffer[i]
+        # (val * fp_scale) >> 8 is equivalent to val * scale
+        # We assume val is 0-255. 255 * 256 = 65280, fits in small int easily.
+        buffer[i] = (val * fp_scale) >> 8
 
