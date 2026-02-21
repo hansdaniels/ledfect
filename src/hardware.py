@@ -116,3 +116,10 @@ class IRReceiver:
             self.last_code = None
             return c
         return None
+
+class LightSensor:
+    def __init__(self, pin_num):
+        self.pin = machine.Pin(pin_num, machine.Pin.IN)
+    
+    def read(self):
+        return self.pin.value()

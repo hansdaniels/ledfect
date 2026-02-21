@@ -2,8 +2,8 @@ import uasyncio as asyncio
 import time
 from src.config import ConfigManager
 from src.compositor import Compositor, Layer, BLEND_MODE_ADD
-from src.hardware import StripController, Button, Potentiometer, PIRSensor, IRReceiver
-from src.effects import SolidColorEffect, LarsonScannerEffect, WanderingSpotsEffect, SparkleEffect, RainbowEffect, PulseEffect, LavaLampEffect
+from src.hardware import StripController, Button, Potentiometer, PIRSensor, IRReceiver, LightSensor
+from src.effects import SolidColorEffect, LarsonScannerEffect, WanderingSpotsEffect, SparkleEffect, RainbowEffect, PulseEffect, LavaLampEffect, FadingSparkleEffect
 from src.web_server import WebServer
 from src.utils import scale_buffer
 import gc
@@ -16,6 +16,7 @@ PIN_BTN_L = 10
 PIN_POT = 27
 PIN_PIR = 16
 PIN_IR = 17
+PIN_LIGHT = 21
 
 NUM_LEDS = 300
 
@@ -31,6 +32,7 @@ class App:
         self.pot = Potentiometer(PIN_POT)
         self.pir = PIRSensor(PIN_PIR)
         self.ir = IRReceiver(PIN_IR)
+        self.light = LightSensor(PIN_LIGHT)
         
         # Logic
         self.compositor = Compositor(NUM_LEDS)
@@ -74,6 +76,8 @@ class App:
             effect = PulseEffect(NUM_LEDS)
         elif name == "LavaLamp":
             effect = LavaLampEffect(NUM_LEDS)
+        elif name == "FadingSparkle":
+            effect = FadingSparkleEffect(NUM_LEDS)
         else:
             effect = SolidColorEffect(NUM_LEDS, color=(50,50,50)) # Fallback
             
@@ -106,13 +110,16 @@ class App:
         asyncio.create_task(self.config.auto_save_loop())
         asyncio.create_task(self.input_loop())
         asyncio.create_task(self.pir_loop())
+        asyncio.create_task(self.light_sensor_loop())
         
         # Main Animation Loop
         print("Starting Animation Loop")
+        frame_counter = 0
+        
+        # Optionally set a gc threshold so pauses are shorter if they happen
+        gc.threshold(32768) 
+        
         while True:
-            # Force GC every frame to prevent buildup and long pauses
-            gc.collect() 
-            
             t0 = time.ticks_ms()
             
             # Logic Update (Only render if ON)
@@ -169,7 +176,7 @@ class App:
 
     async def input_loop(self):
         print("Input Loop Started")
-        effects = ["SolidColor", "LarsonScanner", "WanderingSpots", "Sparkle", "Rainbow", "Pulse", "LavaLamp"]
+        effects = ["SolidColor", "LarsonScanner", "WanderingSpots", "Sparkle", "Rainbow", "Pulse", "LavaLamp", "FadingSparkle"]
         cnt = 0
         while True:
             cnt += 1
@@ -255,6 +262,12 @@ class App:
                     self.strip.write(bytearray(NUM_LEDS * 3)) # Black
             
             await asyncio.sleep_ms(1000)
+
+    async def light_sensor_loop(self):
+        while True:
+            val = self.light.read()
+            print(f"Lichtsensor (GP{PIN_LIGHT}): {val}")
+            await asyncio.sleep(2) # 2 seconds
 
 async def main():
     app = App()

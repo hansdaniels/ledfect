@@ -100,7 +100,10 @@ class LarsonScannerEffect(BaseEffect):
         center = self.pos
         tail = self.params["tail_length"]
         
-        for i in range(self.num_leds):
+        start = max(0, int(center - tail - 2))
+        end = min(self.num_leds, int(center + tail + 2))
+        
+        for i in range(start, end):
             dist = abs(i - center)
             brightness = 0
             if dist < 1.0:
@@ -322,11 +325,14 @@ class RainbowEffect(BaseEffect):
         lut = self._RAINBOW_LUT
         lut_len = len(lut)
         
+        # Precompute integer steps for fixed-point math to avoid per-pixel float allocations
+        step_fp = int(scale * lut_len * 256)
+        start_fp = int(self.offset * lut_len * 256)
+        
         for i in range(self.num_leds):
-            # hue calculated as 0.0-1.0 float in classic logic
-            # Map that to 0..359 index
-            val = (i * scale + self.offset) % 1.0
-            idx = int(val * lut_len) % lut_len
+            # Fixed point math: avoids float allocation (which triggers GC)
+            val_fp = start_fp + i * step_fp
+            idx = (val_fp >> 8) % lut_len
             
             r, g, b = lut[idx]
             
@@ -436,3 +442,155 @@ class LavaLampEffect(BaseEffect):
         self.params["base_color"] = base_color
         num_blobs = random.randint(2, 5)
         self.blobs = [self.Blob(self.num_leds, blob_color) for _ in range(num_blobs)]
+
+class FadingSparkleEffect(BaseEffect):
+    def __init__(self, num_leds, color=None, max_brightness=255, num_fading=3, fade_duration=2000):
+        super().__init__(num_leds)
+        self.params = {
+            "color": color,            # None for random
+            "max_brightness": max_brightness,
+            "num_fading": num_fading,  # Max number of LEDs to fade in/out per cycle (1-3)
+            "fade_duration": fade_duration # ms
+        }
+        self.leds = {} # index -> { "brightness": float, "color": tuple, "dir": 1/-1 }
+        self.last_time = 0
+        self.cycle_phase = "INIT" # INIT, FADING
+        
+    def update(self, time_ms):
+        if self.last_time == 0:
+            self.last_time = time_ms
+            # Start initial fade in
+            self._start_cycle(initial=True)
+            return
+
+        dt = time_ms - self.last_time
+        self.last_time = time_ms
+        
+        # Update brightness
+        finished_count = 0
+        active_count = 0
+        
+        MAX_B = self.params["max_brightness"]
+        DURATION = self.params["fade_duration"]
+        step = (MAX_B / DURATION) * dt
+
+        to_remove = []
+
+        for idx, state in self.leds.items():
+            active_count += 1
+            if state["dir"] > 0: # Fading In
+                state["brightness"] += step
+                if state["brightness"] >= MAX_B:
+                    state["brightness"] = MAX_B
+                    finished_count += 1
+            elif state["dir"] < 0: # Fading Out
+                state["brightness"] -= step
+                if state["brightness"] <= 0:
+                    state["brightness"] = 0
+                    to_remove.append(idx)
+        
+        # Clean up fully faded out LEDs
+        for idx in to_remove:
+            del self.leds[idx]
+        
+        # Check if cycle complete (all fading ins are done)
+        # We only care if the "Fading In" ones are done to start a new cycle?
+        # "When these are lit, another cylcle starts"
+        # So yes, when all current fade-ins reach max, we start new cycle.
+        
+        # But we need to distinguish "Steady" from "Fading In".
+        # Let's say: if we have NO LEDs fading in, we start a new cycle.
+        
+        fading_in_active = False
+        for state in self.leds.values():
+            if state["dir"] > 0 and state["brightness"] < MAX_B:
+                fading_in_active = True
+                break
+        
+        if not fading_in_active:
+            self._start_cycle(initial=False)
+
+    def _start_cycle(self, initial=False):
+        num_fading = self.params["num_fading"]
+        MAX_B = self.params["max_brightness"]
+        
+        # 1. Identify candidates to Fade Out (if not initial)
+        if not initial:
+            # Pick 1-num_fading LEDs from current active ones to fade out
+            # Candidates are those currently fully lit (dir > 0 and brightness == MAX_B ideally, or just dir=1)
+            candidates = [idx for idx, s in self.leds.items() if s["dir"] > 0]
+            count_out = random.randint(1, num_fading)
+            count_out = min(count_out, len(candidates))
+            
+            # MicroPython random doesn't have sample, so we implement it manually
+            chosen_out = []
+            temp_candidates = list(candidates)
+            for _ in range(count_out):
+                if not temp_candidates: break
+                idx = random.randint(0, len(temp_candidates) - 1)
+                chosen_out.append(temp_candidates.pop(idx))
+            for idx in chosen_out:
+                self.leds[idx]["dir"] = -1 # Start fading out
+
+        # 2. Identify candidates to Fade In
+        # Random selection from currently inactive spots
+        # Inefficient to list all empty spots if num_leds is huge, but for 300 it's fine.
+        occupied = set(self.leds.keys())
+        # available = [i for i in range(self.num_leds) if i not in occupied] 
+        # Optimization: Just pick random index until not in occupied
+        
+        count_in = num_fading if initial else random.randint(1, num_fading)
+        if initial: count_in = random.randint(5, 10) # "Starts with several"
+        
+        attempts = 0
+        added = 0
+        while added < count_in and attempts < 100:
+            attempts += 1
+            idx = random.randint(0, self.num_leds - 1)
+            if idx not in occupied:
+                # Pick color
+                if self.params["color"]:
+                    c = self.params["color"]
+                else:
+                    c = hsv_to_rgb(random.random(), 1.0, 255)
+                
+                self.leds[idx] = {
+                    "brightness": 0.0,
+                    "color": c,
+                    "dir": 1 # Fade In
+                }
+                occupied.add(idx)
+                added += 1
+
+    def render(self, buffer):
+        for idx, state in self.leds.items():
+            b_val = state["brightness"]
+            if b_val <= 0: continue
+            
+            r, g, b = state["color"]
+            
+            # Apply brightness
+            # Since color is 0-255, we assume max brightness 255 scales it down?
+            # Or is max_brightness controlling the alpha channel?
+            # User requirement: "Maximum brightness... configurable"
+            # And "fade from off".
+            
+            # Let's scale RGB by brightness/255
+            scale = b_val / 255.0
+            
+            idx_buf = idx * 4
+            buffer[idx_buf] = int(r * scale)
+            buffer[idx_buf+1] = int(g * scale)
+            buffer[idx_buf+2] = int(b * scale)
+            buffer[idx_buf+3] = 255 # Alpha 255 (fully opaque pixel, but dimmed RGB)
+            # Alternatively use the alpha channel for global brightness, but usually we write RGB directly.
+            
+    def randomize(self):
+        # Change configuration randomly
+        if random.random() > 0.5:
+             self.params["color"] = None
+        else:
+             self.params["color"] = hsv_to_rgb(random.random(), 1.0, 255)
+             
+        self.params["num_fading"] = random.randint(1, 5)
+        self.params["fade_duration"] = random.randint(1000, 3000)

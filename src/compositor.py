@@ -20,6 +20,8 @@ class Compositor:
         self.buffer = bytearray(num_leds * 3) 
         self.layer_buffer = bytearray(num_leds * 4)
         self.debug = debug
+        self._blank_buffer = bytearray(num_leds * 3)
+        self._blank_layer = bytearray(num_leds * 4)
 
     def add_layer(self, layer):
         self.layers.append(layer)
@@ -37,22 +39,15 @@ class Compositor:
                 layer.effect.update(time_ms)
 
     def render(self):
-        # Clear main buffer (Black)
-        # Replacing loop with slice assignment if supported or fast fill?
-        # bytearray fill is fast in MP? 
-        # self.buffer[:] = b'\x00' * len(self.buffer) # might alloc
-        n = len(self.buffer)
-        for i in range(n):
-            self.buffer[i] = 0
+        # Clear main buffer (Black) using fast slice assignment
+        self.buffer[:] = self._blank_buffer
 
         for layer in self.layers:
             if not layer.active or layer.opacity == 0:
                 continue
 
             # Clear layer buffer
-            m = len(self.layer_buffer)
-            for i in range(m):
-                self.layer_buffer[i] = 0
+            self.layer_buffer[:] = self._blank_layer
 
             # Render effect into layer_buffer (RGBA)
             layer.effect.render(self.layer_buffer)
