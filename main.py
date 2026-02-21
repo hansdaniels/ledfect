@@ -1,7 +1,6 @@
 import uasyncio as asyncio
 import time
 from src.config import ConfigManager
-from src.compositor import Compositor, Layer, BLEND_MODE_ADD
 from src.hardware import StripController, Button, Potentiometer, PIRSensor, IRReceiver, LightSensor
 from src.effects import SolidColorEffect, LarsonScannerEffect, WanderingSpotsEffect, SparkleEffect, RainbowEffect, PulseEffect, LavaLampEffect, FadingSparkleEffect
 from src.web_server import WebServer
@@ -35,7 +34,9 @@ class App:
         self.light = LightSensor(PIN_LIGHT)
         
         # Logic
-        self.compositor = Compositor(NUM_LEDS)
+        self.buffer = bytearray(NUM_LEDS * 3)
+        self.blank_buffer = bytearray(NUM_LEDS * 3)
+        self.current_effect = None
         self.current_effect_name = self.config.get("effect", "SolidColor")
         self.brightness = self.config.get("brightness", 255)
         self.pir_enabled = self.config.get("pir_enabled", True)
@@ -58,7 +59,6 @@ class App:
             self.is_off_due_to_timeout = False
 
     def _load_effect(self, name):
-        self.compositor.clear_layers()
         self.current_effect_name = name
         
         effect = None
@@ -81,10 +81,7 @@ class App:
         else:
             effect = SolidColorEffect(NUM_LEDS, color=(50,50,50)) # Fallback
             
-        if effect:
-            # We can have multiple layers. For now one active effect layer.
-            # Maybe a background layer?
-            self.compositor.add_layer(Layer(effect))
+        self.current_effect = effect
             
         self.config.set("effect", name)
 
@@ -126,10 +123,10 @@ class App:
             is_on = not self.is_off_due_to_timeout and not self.is_off_manual
             
             if is_on:
-                self.compositor.update(t0)
-                
-                # Render
-                buffer = self.compositor.render()
+                if self.current_effect:
+                    self.current_effect.update(t0)
+                    self.buffer[:] = self.blank_buffer
+                    self.current_effect.render(self.buffer)
                 
                 # Apply Global Brightness (from Potentiometer usually, or Web)
                 # Apply Potentiometer read to self.brightness?
@@ -140,13 +137,10 @@ class App:
                 
                 # Special mapping for LarsonScanner: Pot = Speed
                 if self.current_effect_name == "LarsonScanner":
-                    # Map 0.0-1.0 to Speed 0.05 - 3.0
-                    if self.compositor.layers:
-                        # Speed needs to be updated on the effect instance
-                        eff = self.compositor.layers[0].effect
+                    if self.current_effect:
                         # Logarithmic-ish mapping for better feel? Linear is fine.
                         new_speed = 0.05 + (master_scale * 3.0) 
-                        eff.params["speed"] = new_speed
+                        self.current_effect.params["speed"] = new_speed
                     
                     # Brightness controlled only by web/config (fixed scale 1.0 from pot perspective)
                     master_scale = 1.0 
@@ -159,9 +153,9 @@ class App:
                 final_scale = master_scale * (self.brightness / 255.0)
                 
                 if final_scale < 0.99:
-                    scale_buffer(buffer, final_scale)
+                    scale_buffer(self.buffer, final_scale)
                 
-                self.strip.write(buffer)
+                self.strip.write(self.buffer)
             else:
                 # Off state
                 # Write black once? We should ensure strip is cleared when entering off state.
@@ -217,8 +211,8 @@ class App:
             if evt_c == 1:
                 # Short Press: Randomize
                 print("Button Center Short: Randomize")
-                if self.compositor.layers:
-                    self.compositor.layers[0].effect.randomize()
+                if self.current_effect:
+                    self.current_effect.randomize()
             elif evt_c == 2:
                 # Long Press: Toggle On/Off
                 print("Button Center Long: Toggle On/Off")

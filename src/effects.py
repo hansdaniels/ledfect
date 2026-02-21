@@ -41,11 +41,10 @@ class SolidColorEffect(BaseEffect):
     def render(self, buffer):
         r, g, b = self.params["color"]
         for i in range(self.num_leds):
-            idx = i * 4
+            idx = i * 3
             buffer[idx] = int(r)
             buffer[idx+1] = int(g)
-            buffer[idx+2] = int(b)
-            buffer[idx+3] = 255 
+            buffer[idx+2] = int(b) 
             
     def randomize(self):
         # Random hue or temperature
@@ -114,11 +113,11 @@ class LarsonScannerEffect(BaseEffect):
                 brightness = 0
             
             if brightness > 0:
-                idx = i * 4
-                buffer[idx] = r
-                buffer[idx+1] = g
-                buffer[idx+2] = b
-                buffer[idx+3] = brightness
+                idx = i * 3
+                factor = brightness / 255.0
+                buffer[idx] = int(r * factor)
+                buffer[idx+1] = int(g * factor)
+                buffer[idx+2] = int(b * factor)
 
     def randomize(self):
         self.params["color"] = hsv_to_rgb(random.random(), 1.0, 255)
@@ -179,12 +178,11 @@ class WanderingSpotsEffect(BaseEffect):
                 brightness = int(255 * factor)
                 if brightness <= 0: continue
 
-                idx = i * 4
+                idx = i * 3
                 cr = buffer[idx]
                 cg = buffer[idx+1]
                 cb = buffer[idx+2]
-                ca = buffer[idx+3]
-                new_a = max(ca, brightness)
+                
                 nr = cr + int(sr * factor)
                 ng = cg + int(sg * factor)
                 nb = cb + int(sb * factor)
@@ -192,7 +190,6 @@ class WanderingSpotsEffect(BaseEffect):
                 buffer[idx] = min(255, nr)
                 buffer[idx+1] = min(255, ng)
                 buffer[idx+2] = min(255, nb)
-                buffer[idx+3] = min(255, new_a)
 
     def randomize(self):
         # Reset spots with new params
@@ -230,11 +227,11 @@ class SparkleEffect(BaseEffect):
             bright = self.pixels[i]
             if bright > 0:
                 r, g, b = self.pixel_colors[i]
-                idx = i * 4
-                buffer[idx] = r
-                buffer[idx+1] = g
-                buffer[idx+2] = b
-                buffer[idx+3] = bright
+                idx = i * 3
+                factor = bright / 255.0
+                buffer[idx] = int(r * factor)
+                buffer[idx+1] = int(g * factor)
+                buffer[idx+2] = int(b * factor)
 
     def randomize(self):
         self.params["speed"] = random.randint(5, 20)
@@ -336,11 +333,10 @@ class RainbowEffect(BaseEffect):
             
             r, g, b = lut[idx]
             
-            idx_buf = i * 4
+            idx_buf = i * 3
             buffer[idx_buf] = r
             buffer[idx_buf+1] = g
             buffer[idx_buf+2] = b
-            buffer[idx_buf+3] = 255
 
     def randomize(self):
         self.params["speed"] = random.randint(1, 20)
@@ -365,11 +361,10 @@ class PulseEffect(BaseEffect):
         g = int(self.params["color"][1] * brightness)
         b = int(self.params["color"][2] * brightness)
         for i in range(self.num_leds):
-            idx = i * 4
+            idx = i * 3
             buffer[idx] = r
             buffer[idx+1] = g
             buffer[idx+2] = b
-            buffer[idx+3] = 255
 
     def randomize(self):
         self.params["color"] = hsv_to_rgb(random.random(), 1.0, 255)
@@ -403,11 +398,10 @@ class LavaLampEffect(BaseEffect):
     def render(self, buffer):
         br, bg, bb = self.params["base_color"]
         for i in range(self.num_leds):
-            idx = i * 4
+            idx = i * 3
             buffer[idx] = br
             buffer[idx+1] = bg
             buffer[idx+2] = bb
-            buffer[idx+3] = 255
 
         for blob in self.blobs:
             start = int(blob.pos - blob.size * 2)
@@ -421,7 +415,7 @@ class LavaLampEffect(BaseEffect):
                 val = math.exp(-(dist*dist)/(2*(blob.size/2.2)**2)) 
                 if val < 0.05: continue
                 
-                idx = i * 4
+                idx = i * 3
                 # Additive blending but clamped
                 r = buffer[idx] + int(blob.color[0] * val)
                 g = buffer[idx+1] + int(blob.color[1] * val)
@@ -578,12 +572,10 @@ class FadingSparkleEffect(BaseEffect):
             # Let's scale RGB by brightness/255
             scale = b_val / 255.0
             
-            idx_buf = idx * 4
+            idx_buf = idx * 3
             buffer[idx_buf] = int(r * scale)
             buffer[idx_buf+1] = int(g * scale)
             buffer[idx_buf+2] = int(b * scale)
-            buffer[idx_buf+3] = 255 # Alpha 255 (fully opaque pixel, but dimmed RGB)
-            # Alternatively use the alpha channel for global brightness, but usually we write RGB directly.
             
     def randomize(self):
         # Change configuration randomly
