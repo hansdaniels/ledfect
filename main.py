@@ -135,15 +135,23 @@ class App:
         # Optionally set a gc threshold so pauses are shorter if they happen
         gc.threshold(32768) 
         
+        self.logical_time = 0
+        last_t = time.ticks_ms()
+        
         while True:
             t0 = time.ticks_ms()
+            dt_real = time.ticks_diff(t0, last_t)
+            last_t = t0
             
             # Logic Update (Only render if ON)
             is_on = not self.is_off_due_to_timeout and not self.is_off_manual
             
             if is_on:
                 if self.current_effect:
-                    self.current_effect.update(t0)
+                    if not getattr(self, 'is_paused', False):
+                        self.logical_time += dt_real
+                        
+                    self.current_effect.update(self.logical_time)
                     self.buffer[:] = self.blank_buffer
                     self.current_effect.render(self.buffer)
                 
@@ -289,9 +297,9 @@ class App:
                     "SETUP":      build_map(0x22),   
                     "UP":         build_map(0x81),   
                     "STOP/MODE":  build_map(0xE1),   
-                    "LEFT":       build_map(0xF0),   
+                    "LEFT":       build_map(0x7F),   # Updated to 0x7F based on terminal dump
                     "ENTER/SAVE": build_map(0xA8),   
-                    "RIGHT":      build_map(0x90),   
+                    "RIGHT":      build_map(0xFC),   # Updated to 0xFC based on terminal dump
                     "0_10+":      build_map(0xB4),   
                     "DOWN":       build_map(0xCC),   
                     "BACK":       build_map(0xD8),   
@@ -324,8 +332,8 @@ class App:
                     self._load_effect(effects[next_idx])
                     
                 elif code in ir_mapping["PLAY/PAUSE"]:
-                    if self.current_effect:
-                        self.current_effect.randomize()
+                    self.is_paused = not getattr(self, 'is_paused', False)
+                    print(f"Effect Paused: {self.is_paused}")
                         
                 elif code in ir_mapping["VOL+"] or code in ir_mapping["UP"]:
                     self.brightness = min(255, self.brightness + 25)
@@ -361,14 +369,29 @@ class App:
             print(f"Lichtsensor (GP{PIN_LIGHT}): {val}")
             await asyncio.sleep(2) # 2 seconds
 
+app_instance = None
+
 async def main():
-    app = App()
-    await app.run()
+    global app_instance
+    app_instance = App()
+    await app_instance.run()
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("Stopped")
+        print("Stopped by User.")
     finally:
+        # Crucial for soft resets in Thonny (pressing STOP button)!
+        # Signals the Core 1 while loop to break and exit cleanly
+        if 'app_instance' in globals() and app_instance is not None:
+            if hasattr(app_instance, '_shutdown_render'):
+                app_instance._shutdown_render = True
+            
+            # We also need to release the lock in case Core 1 is waiting on it!
+            if hasattr(app_instance, '_render_lock') and app_instance._render_lock.locked():
+                app_instance._render_lock.release()
+                
+            print("Core 1 Thread halted.")
+            
         asyncio.new_event_loop() # Reset

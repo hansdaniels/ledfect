@@ -75,6 +75,9 @@ class LarsonScannerEffect(BaseEffect):
             self.last_time = time_ms
             return
 
+        if time_ms == self.last_time:
+            return
+
         dt = (time_ms - self.last_time) / 1000.0
         self.last_time = time_ms
         
@@ -158,7 +161,14 @@ class WanderingSpotsEffect(BaseEffect):
         self.prev_time = 0
 
     def update(self, time_ms):
-        time_delta = time_ms - self.prev_time if self.prev_time > 0 else 16
+        if not hasattr(self, 'prev_time') or self.prev_time == 0:
+            self.prev_time = time_ms
+            return
+            
+        if time_ms == self.prev_time:
+            return
+
+        time_delta = time_ms - self.prev_time
         self.prev_time = time_ms
         for spot in self.spots:
             spot.update(time_delta)
@@ -208,6 +218,15 @@ class SparkleEffect(BaseEffect):
         self.pixel_colors = [(0,0,0)] * num_leds
 
     def update(self, time_ms):
+        if not hasattr(self, '_last_time'):
+            self._last_time = time_ms
+            return
+            
+        if time_ms == self._last_time:
+            return
+            
+        self._last_time = time_ms
+        
         decay = self.params["speed"]
         for i in range(self.num_leds):
             if self.pixels[i] > 0:
@@ -351,11 +370,10 @@ class PulseEffect(BaseEffect):
         }
     
     def update(self, time_ms):
-        pass 
+        self._current_time = time_ms / 1000.0
 
     def render(self, buffer):
-        import time
-        t = time.ticks_ms() / 1000.0 * self.params["speed"]
+        t = getattr(self, '_current_time', 0.0) * self.params["speed"]
         brightness = (math.sin(t) + 1) / 2
         r = int(self.params["color"][0] * brightness)
         g = int(self.params["color"][1] * brightness)
@@ -392,6 +410,15 @@ class LavaLampEffect(BaseEffect):
         self.blobs = [self.Blob(num_leds, blob_color) for _ in range(num_blobs)]
 
     def update(self, time_ms):
+        # Only update if logical time actually advances (supports pausing)
+        if not hasattr(self, '_last_time'):
+            self._last_time = time_ms
+            return
+            
+        if time_ms == self._last_time:
+            return
+            
+        self._last_time = time_ms
         for blob in self.blobs:
             blob.update()
 
@@ -451,10 +478,13 @@ class FadingSparkleEffect(BaseEffect):
         self.cycle_phase = "INIT" # INIT, FADING
         
     def update(self, time_ms):
-        if self.last_time == 0:
+        if not hasattr(self, 'last_time') or self.last_time == 0:
             self.last_time = time_ms
             # Start initial fade in
             self._start_cycle(initial=True)
+            return
+
+        if time_ms == self.last_time:
             return
 
         dt = time_ms - self.last_time

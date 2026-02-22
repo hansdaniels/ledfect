@@ -69,31 +69,25 @@ def nec_decoder():
     jmp(y_dec, "delay") [8] # 10us loop
     jmp(x_dec, "mark_loop")
     
-    # Start Mark valid. Wait for it to finish.
+    # Start Mark valid. Wait for Space.
     wait(1, pin, 0)
     
-    # Measure Start Space
-    # We need to distinguish between 4.5ms (Data) and 2.25ms (Repeat).
-    # We will count down from 31 with a ~100us delay.
-    # 31 * 100us = 3.1ms threshold.
     set(x, 31)
     label("start_space")
     jmp(pin, "space_high")
     
-    # Pin went LOW. Check X to see if it took > 3.1ms
-    # If X > 0, we finished EARLY (Time < 3.1ms) -> REPEAT CODE!
-    # If X == 0, we finished LATE (Time > 3.1ms) -> DATA CODE!
-    # X counts down to 0, so if we're here, we test X.
-    # The simplest way: if we branch past the X decrements, we have 4.5ms.
+    # PIN WENT LOW! (Space ended < 3.1ms -> Repeat Code)
+    mov(isr, invert(null))
+    push()
+    jmp("idle")
     
     label("space_high")
     set(y, 9)
     label("delay_space")
-    jmp(y_dec, "delay_space") [8] # 10us loop
+    jmp(y_dec, "delay_space") [8] # ~100us loop
     jmp(x_dec, "start_space")
     
-    # Start Space > 3.1ms long. It's a Data Code!
-    # Wait for Start Space to finish
+    # X hit 0! (Space > 3.1ms -> Data Code)
     wait(0, pin, 0)
     
     # We will read exactly 32 bits
@@ -104,15 +98,12 @@ def nec_decoder():
     wait(1, pin, 0)
     
     # Measure Data Space
-    # Logic 0 space is ~560us. Logic 1 space is ~1690us.
-    # Threshold ~1000us.
     set(x, 31)
     
     label("measure_bit")
     jmp(pin, "bit_high")
     
-    # Pin went LOW -> Space ended.
-    # If X is STILL NOT 0, the space was SHORT (<1000us) -> Logic 0.
+    # Pin went LOW -> Space ended. Short (<1000us) -> Logic 0.
     set(x, 0)
     in_(x, 1)
     jmp(y_dec, "bit_loop")
