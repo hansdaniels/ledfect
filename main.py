@@ -1,5 +1,6 @@
 import uasyncio as asyncio
 import time
+import _thread
 from src.config import ConfigManager
 from src.hardware import StripController, Button, Potentiometer, PIRSensor, IRReceiver, LightSensor
 from src.effects import SolidColorEffect, LarsonScannerEffect, WanderingSpotsEffect, SparkleEffect, RainbowEffect, PulseEffect, LavaLampEffect, FadingSparkleEffect
@@ -13,8 +14,8 @@ PIN_BTN_R = 9
 PIN_BTN_C = 12
 PIN_BTN_L = 10
 PIN_POT = 27
-PIN_PIR = 16
-PIN_IR = 17
+PIN_PIR = 15
+PIN_IR = 14
 PIN_LIGHT = 21
 
 NUM_LEDS = 300
@@ -50,6 +51,24 @@ class App:
         
         # Web Server
         self.server = WebServer(self)
+        
+        # Second Core Render Thread
+        self._render_buffer = bytearray(NUM_LEDS * 3)
+        self._render_ready = False
+        self._shutdown_render = False
+        _thread.start_new_thread(self._render_worker, ())
+
+    def _render_worker(self):
+        # This function runs infinitely on the SECOND CPU CORE.
+        # It handles writing to the NeoPixel strip, which disables its local core's interrupts.
+        # This leaves Core 0 completely free to handle IR and asyncio without drops!
+        while not self._shutdown_render:
+            if self._render_ready:
+                self.strip.write(self._render_buffer)
+                self._render_ready = False
+            else:
+                # Sleep briefly to yield core
+                time.sleep_ms(2)
 
     def reset_activity(self):
         """Reset the user activity timer (wakes up if sleeping)."""
@@ -146,21 +165,31 @@ class App:
                     master_scale = 1.0 
                 
                 # We need to scale the buffer.
-                # Note: modifying buffer in place is risky if compositor reuses it? 
-                # Compositor returns mutable ref to self.buffer.
-                # Use a simple check: if brightness < 1.0, scale.
-                
                 final_scale = master_scale * (self.brightness / 255.0)
                 
                 if final_scale < 0.99:
                     scale_buffer(self.buffer, final_scale)
                 
-                self.strip.write(self.buffer)
+                # Check if the buffer actually changed before writing.
+                if not hasattr(self, '_last_written_buffer') or self.buffer != self._last_written_buffer:
+                    # Handoff to Second Core
+                    # We only signal the thread if it's currently waiting (flag is False)
+                    # If it's already busy writing the previous frame, we just skip (frame drop)
+                    # to maintain timing!
+                    if not self._render_ready:
+                        self._render_buffer[:] = self.buffer
+                        self._render_ready = True # Signals thread to go!
+                    
+                    self._last_written_buffer = bytearray(self.buffer)
+                    
+                self._is_black_written = False
             else:
                 # Off state
-                # Write black once? We should ensure strip is cleared when entering off state.
-                # Just writing black repeatedly is fine.
-                self.strip.write(bytearray(NUM_LEDS * 3))
+                if getattr(self, '_is_black_written', False) == False:
+                    if not self._render_ready:
+                        self._render_buffer[:] = bytearray(NUM_LEDS * 3)
+                        self._render_ready = True
+                    self._is_black_written = True
 
             # Frame pacing
             t1 = time.ticks_ms()
@@ -230,12 +259,81 @@ class App:
             # IR Remote
             code = self.ir.get_code()
             if code is not None:
+                print(f"IR Remote - Received Code: {code} (Hex: 0x{code:02X})")
                 self.reset_activity()
-                # TODO: Map specific codes to actions
-                # Just next effect for any code for now as test
-                idx = effects.index(self.current_effect_name)
-                next_idx = (idx + 1) % len(effects)
-                self._load_effect(effects[next_idx])
+                
+                # Map specific codes to actions using a dictionary.
+                # YOUR REMOTE IS INCREDIBLE! It uses a rare Toggle-Bit protocol where it alternates
+                # every button press between a Base Code (e.g. 0xD1) and a 1-bit Circular Left Shift
+                # of the entire 32-bit packet (which becomes 0xA2)!
+                # Rather than making you write both, we can just define the base codes and
+                # let Python check for both!
+                
+                def get_toggle_code(base_cmd):
+                    # For example, if Base CMD is 0xD1 (209) and Addr is 0x80 (128):
+                    # The full 32-bit packet is 0x807FD12E
+                    # Shifted Left 1 bit = 0x00FFA25D -> New CMD is 0xA2 (162)
+                    packet = (0x80 << 24) | (0x7F << 16) | (base_cmd << 8) | ((~base_cmd) & 0xFF)
+                    # Circular shift left by 1
+                    shifted = ((packet << 1) & 0xFFFFFFFF) | (packet >> 31)
+                    return (shifted >> 8) & 0xFF
+
+                def build_map(*base_cmds):
+                    # Automatically creates a list of [Base, Toggle] for every command
+                    return [c for cmd in base_cmds for c in (cmd, get_toggle_code(cmd))]
+                
+                ir_mapping = {
+                    "VOL-":       build_map(0xD1),   
+                    "PLAY/PAUSE": build_map(0xB1),   
+                    "VOL+":       build_map(0xF1),   
+                    "SETUP":      build_map(0x22),   
+                    "UP":         build_map(0x81),   
+                    "STOP/MODE":  build_map(0xE1),   
+                    "LEFT":       build_map(0xF0),   
+                    "ENTER/SAVE": build_map(0xA8),   
+                    "RIGHT":      build_map(0x90),   
+                    "0_10+":      build_map(0xB4),   
+                    "DOWN":       build_map(0xCC),   
+                    "BACK":       build_map(0xD8),   
+                    "1":          build_map(0x30),
+                    "2":          build_map(0x18),
+                    "3":          build_map(0x7A),
+                    "4":          build_map(0x10),
+                    "5":          build_map(0x9C),
+                    "6":          build_map(0xAD),
+                    "7":          build_map(0x42),
+                    "8":          build_map(0x4A),
+                    "9":          build_map(0xA9),
+                }
+
+                if code in ir_mapping["STOP/MODE"]:
+                    self.is_off_manual = not self.is_off_manual
+                    if self.is_off_manual:
+                         print("Manual Off (IR)")
+                    else:
+                         print("Manual On (IR)")
+                         
+                elif code in ir_mapping["RIGHT"]: # Right = Next
+                    idx = effects.index(self.current_effect_name)
+                    next_idx = (idx + 1) % len(effects)
+                    self._load_effect(effects[next_idx])
+                    
+                elif code in ir_mapping["LEFT"]: # Left = Prev
+                    idx = effects.index(self.current_effect_name)
+                    next_idx = (idx - 1) % len(effects)
+                    self._load_effect(effects[next_idx])
+                    
+                elif code in ir_mapping["PLAY/PAUSE"]:
+                    if self.current_effect:
+                        self.current_effect.randomize()
+                        
+                elif code in ir_mapping["VOL+"] or code in ir_mapping["UP"]:
+                    self.brightness = min(255, self.brightness + 25)
+                    self.config.set("brightness", self.brightness)
+                    
+                elif code in ir_mapping["VOL-"] or code in ir_mapping["DOWN"]:
+                    self.brightness = max(0, self.brightness - 25)
+                    self.config.set("brightness", self.brightness)
 
             await asyncio.sleep_ms(50)
 

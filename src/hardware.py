@@ -117,6 +117,9 @@ class IRReceiver:
             return c
         return None
 
+    def get_debug_pulses(self):
+        return self.ir.get_debug_pulses()
+
 class LightSensor:
     def __init__(self, pin_num):
         self.pin = machine.Pin(pin_num, machine.Pin.IN)
