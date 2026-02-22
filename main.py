@@ -290,6 +290,13 @@ class App:
                     # Automatically creates a list of [Base, Toggle] for every command
                     return [c for cmd in base_cmds for c in (cmd, get_toggle_code(cmd))]
                 
+                
+                # List of all available effects for cycling
+                effects = [
+                    "SolidColor", "LarsonScanner", "WanderingSpots", 
+                    "Sparkle", "Rainbow", "Pulse", "LavaLamp", "FadingSparkle"
+                ]
+
                 ir_mapping = {
                     "VOL-":       build_map(0xD1),   
                     "PLAY/PAUSE": build_map(0xB1),   
@@ -297,9 +304,9 @@ class App:
                     "SETUP":      build_map(0x22),   
                     "UP":         build_map(0x81),   
                     "STOP/MODE":  build_map(0xE1),   
-                    "LEFT":       build_map(0x7F),   # Updated to 0x7F based on terminal dump
+                    "LEFT":       build_map(0xE0),   # E0 (Left)
                     "ENTER/SAVE": build_map(0xA8),   
-                    "RIGHT":      build_map(0xFC),   # Updated to 0xFC based on terminal dump
+                    "RIGHT":      build_map(0x90),   # 90 (Right)
                     "0_10+":      build_map(0xB4),   
                     "DOWN":       build_map(0xCC),   
                     "BACK":       build_map(0xD8),   
