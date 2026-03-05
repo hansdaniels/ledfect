@@ -103,18 +103,22 @@ def nec_decoder():
     label("measure_bit")
     jmp(pin, "bit_high")
     
-    # Pin went LOW -> Space ended. Short (<1000us) -> Logic 0.
-    set(x, 0)
-    in_(x, 1)
+    # Pin went LOW -> Check if EMI glitch
+    nop() [31]                  # Wait 32us
+    jmp(pin, "bit_high") [31]   # Recheck pin, if HIGH it was a glitch! (Wait 32us more)
+    
+    # Pin still LOW -> Space ended. Short (<1100us) -> Logic 0.
+    in_(null, 1)                # Shift in a 0
     jmp(y_dec, "bit_loop")
-    jmp("idle")             # 32 bits read, autopush handles it
+    jmp("idle")                 # 32 bits read, autopush handles it
     
     label("bit_high")
-    jmp(x_dec, "measure_bit") [30] # 32us loop = 992us max
+    nop() [6]                   # Adjust loop to ~38 cycles (38us * 31 = ~1178us max)
+    jmp(x_dec, "measure_bit") [30] 
     
-    # If X hits 0, the space was LONG (>1000us) -> Logic 1.
-    set(x, 1)
-    in_(x, 1)
+    # If X hits 0, space was LONG (>1178us) -> Logic 1. 
+    # X is now 0xFFFFFFFF due to underflow, shifting X will shift in a 1!
+    in_(x, 1)                   
     wait(0, pin, 0)         # Wait for space to finish
     jmp(y_dec, "bit_loop")
     wrap()
