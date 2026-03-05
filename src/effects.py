@@ -66,16 +66,26 @@ class SolidColorEffect(BaseEffect):
 class LarsonScannerEffect(BaseEffect):
     def __init__(self, num_leds, color=(255, 0, 0), tail_length=10, speed=0.2):
         super().__init__(num_leds)
-        self.params = {
-            "color": color,
-            "tail_length": tail_length,
-            "speed": speed, 
-            "width": 2.0 
-        }
-        self.scanners = [{"pos": 0.0, "direction": 1}]
+        self.params = {} # base params not really used if they each have their own
+        self.scanners = [{
+            "pos": 0.0, 
+            "direction": 1, 
+            "color": color, 
+            "tail_length": tail_length, 
+            "speed": speed
+        }]
 
     def add_instance(self):
-        self.scanners.append({"pos": random.uniform(0, self.num_leds-1), "direction": random.choice([-1, 1])})
+        new_color = hsv_to_rgb(random.random(), 1.0, 255)
+        new_tail = random.randint(5, 30)
+        new_speed = random.uniform(0.02, 0.3) 
+        self.scanners.append({
+            "pos": random.uniform(0, self.num_leds-1), 
+            "direction": random.choice([-1, 1]),
+            "color": new_color,
+            "tail_length": new_tail,
+            "speed": new_speed
+        })
 
     def remove_instance(self):
         if len(self.scanners) > 1:
@@ -93,14 +103,11 @@ class LarsonScannerEffect(BaseEffect):
         dt = (time_ms - self.last_time) / 1000.0
         self.last_time = time_ms
         
-        speed = self.params.get("speed", 0.2)
-        # speed is roughly "loops per second" or similar?
-        # Let's say speed 1.0 = 50 pixels / sec
-        
-        step = dt * (speed * 100.0)
         limit = self.num_leds - 1
         
         for scanner in self.scanners:
+            speed = scanner.get("speed", 0.2)
+            step = dt * (speed * 100.0)
             scanner["pos"] += step * scanner["direction"]
             if scanner["pos"] >= limit:
                 scanner["pos"] = limit
@@ -110,10 +117,9 @@ class LarsonScannerEffect(BaseEffect):
                 scanner["direction"] = 1
 
     def render(self, buffer):
-        r, g, b = self.params["color"]
-        tail = self.params["tail_length"]
-        
         for scanner in self.scanners:
+            r, g, b = scanner["color"]
+            tail = scanner["tail_length"]
             center = scanner["pos"]
             start = max(0, int(center - tail - 2))
             end = min(self.num_leds, int(center + tail + 2))
@@ -139,9 +145,11 @@ class LarsonScannerEffect(BaseEffect):
                     buffer[idx+2] = min(255, nb)
 
     def randomize(self):
-        self.params["color"] = hsv_to_rgb(random.random(), 1.0, 255)
-        self.params["speed"] = random.uniform(0.2, 1.5)
-        self.params["tail_length"] = random.randint(5, 30)
+        # Randomize all scanners
+        for scanner in self.scanners:
+            scanner["color"] = hsv_to_rgb(random.random(), 1.0, 255)
+            scanner["speed"] = random.uniform(0.2, 1.5)
+            scanner["tail_length"] = random.randint(5, 30)
 
 class WanderingSpotsEffect(BaseEffect):
     class Spot:
