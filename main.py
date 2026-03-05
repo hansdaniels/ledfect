@@ -20,6 +20,12 @@ PIN_LIGHT = 21
 
 NUM_LEDS = 300
 
+# Gamma-corrected brightness steps for visually linear changes
+BRIGHTNESS_STEPS = [
+    0, 1, 2, 4, 8, 12, 18, 25, 34, 45, 
+    57, 71, 86, 104, 124, 145, 169, 195, 224, 255
+]
+
 class App:
     def __init__(self):
         self.config = ConfigManager()
@@ -45,6 +51,7 @@ class App:
         self.is_off_due_to_timeout = False
         self.is_off_manual = False
         self.manual_off_brightness_cache = 255
+        self.speed_scaler = 1.0  # Master speed control (1.0 = 100%)
         
         # Load initial effect
         self._load_effect(self.current_effect_name)
@@ -149,31 +156,15 @@ class App:
             if is_on:
                 if self.current_effect:
                     if not getattr(self, 'is_paused', False):
-                        self.logical_time += dt_real
+                        # Apply speed_scaler globally by accelerating the logical clock!
+                        self.logical_time += dt_real * getattr(self, 'speed_scaler', 1.0)
                         
                     self.current_effect.update(self.logical_time)
                     self.buffer[:] = self.blank_buffer
                     self.current_effect.render(self.buffer)
                 
-                # Apply Global Brightness (from Potentiometer usually, or Web)
-                # Apply Potentiometer read to self.brightness?
-                # Let's say Pot overrides or scales Web brightness?
-                # Usually Pot is absolute if moved, or we just take Pot * MaxBrightness.
-                # Let's just use Pot as master scaler [0.0 - 1.0] for the config brightness.
-                master_scale = self.pot.read()
-                
-                # Special mapping for LarsonScanner: Pot = Speed
-                if self.current_effect_name == "LarsonScanner":
-                    if self.current_effect:
-                        # Logarithmic-ish mapping for better feel? Linear is fine.
-                        new_speed = 0.05 + (master_scale * 3.0) 
-                        self.current_effect.params["speed"] = new_speed
-                    
-                    # Brightness controlled only by web/config (fixed scale 1.0 from pot perspective)
-                    master_scale = 1.0 
-                
-                # We need to scale the buffer.
-                final_scale = master_scale * (self.brightness / 255.0)
+                # Apply Global Brightness
+                final_scale = self.brightness / 255.0
                 
                 if final_scale < 0.99:
                     scale_buffer(self.buffer, final_scale)
@@ -328,27 +319,47 @@ class App:
                     else:
                          print("Manual On (IR)")
                          
-                elif code in ir_mapping["RIGHT"]: # Right = Next
-                    idx = effects.index(self.current_effect_name)
-                    next_idx = (idx + 1) % len(effects)
-                    self._load_effect(effects[next_idx])
+                elif code in ir_mapping["UP"]: # Up = Next Effect
+                    try:
+                        idx = effects.index(self.current_effect_name)
+                        next_idx = (idx + 1) % len(effects)
+                        print(f"Switching Effect via UP to: {effects[next_idx]}")
+                        self._load_effect(effects[next_idx])
+                    except ValueError:
+                        self._load_effect(effects[0])
                     
-                elif code in ir_mapping["LEFT"]: # Left = Prev
-                    idx = effects.index(self.current_effect_name)
-                    next_idx = (idx - 1) % len(effects)
-                    self._load_effect(effects[next_idx])
+                elif code in ir_mapping["DOWN"]: # Down = Prev Effect
+                    try:
+                        idx = effects.index(self.current_effect_name)
+                        next_idx = (idx - 1) % len(effects)
+                        print(f"Switching Effect via DOWN to: {effects[next_idx]}")
+                        self._load_effect(effects[next_idx])
+                    except ValueError:
+                        self._load_effect(effects[0])
+                    
+                elif code in ir_mapping["RIGHT"]: # Right = Faster
+                    self.speed_scaler = min(5.0, self.speed_scaler + 0.25)
+                    print(f"Global Speed Increased: {self.speed_scaler:.2f}x")
+                    
+                elif code in ir_mapping["LEFT"]: # Left = Slower
+                    self.speed_scaler = max(0.1, self.speed_scaler - 0.25)
+                    print(f"Global Speed Decreased: {self.speed_scaler:.2f}x")
                     
                 elif code in ir_mapping["PLAY/PAUSE"]:
                     self.is_paused = not getattr(self, 'is_paused', False)
                     print(f"Effect Paused: {self.is_paused}")
                         
-                elif code in ir_mapping["VOL+"] or code in ir_mapping["UP"]:
-                    self.brightness = min(255, self.brightness + 25)
+                elif code in ir_mapping["VOL+"]: # Vol+ = Brightness Up
+                    next_steps = [b for b in BRIGHTNESS_STEPS if b > self.brightness]
+                    self.brightness = next_steps[0] if next_steps else 255
                     self.config.set("brightness", self.brightness)
+                    print(f"Brightness UP: {self.brightness}/255")
                     
-                elif code in ir_mapping["VOL-"] or code in ir_mapping["DOWN"]:
-                    self.brightness = max(0, self.brightness - 25)
+                elif code in ir_mapping["VOL-"]: # Vol- = Brightness Down
+                    prev_steps = [b for b in BRIGHTNESS_STEPS if b < self.brightness]
+                    self.brightness = prev_steps[-1] if prev_steps else 0
                     self.config.set("brightness", self.brightness)
+                    print(f"Brightness DOWN: {self.brightness}/255")
 
             await asyncio.sleep_ms(50)
 
