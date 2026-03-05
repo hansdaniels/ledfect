@@ -26,6 +26,12 @@ class BaseEffect:
         """Randomize parameters for variety."""
         pass
 
+    def add_instance(self):
+        pass
+
+    def remove_instance(self):
+        pass
+
 class SolidColorEffect(BaseEffect):
     def __init__(self, num_leds, color=(255, 255, 255), kelvin=None):
         super().__init__(num_leds)
@@ -66,8 +72,14 @@ class LarsonScannerEffect(BaseEffect):
             "speed": speed, 
             "width": 2.0 
         }
-        self.pos = 0.0
-        self.direction = 1
+        self.scanners = [{"pos": 0.0, "direction": 1}]
+
+    def add_instance(self):
+        self.scanners.append({"pos": random.uniform(0, self.num_leds-1), "direction": random.choice([-1, 1])})
+
+    def remove_instance(self):
+        if len(self.scanners) > 1:
+            self.scanners.pop()
 
     def update(self, time_ms):
         # State-based bounce logic for variable speed
@@ -86,41 +98,45 @@ class LarsonScannerEffect(BaseEffect):
         # Let's say speed 1.0 = 50 pixels / sec
         
         step = dt * (speed * 100.0)
-        
-        self.pos += step * self.direction
-        
         limit = self.num_leds - 1
-        if self.pos >= limit:
-            self.pos = limit
-            self.direction = -1
-        elif self.pos <= 0:
-            self.pos = 0
-            self.direction = 1
+        
+        for scanner in self.scanners:
+            scanner["pos"] += step * scanner["direction"]
+            if scanner["pos"] >= limit:
+                scanner["pos"] = limit
+                scanner["direction"] = -1
+            elif scanner["pos"] <= 0:
+                scanner["pos"] = 0
+                scanner["direction"] = 1
 
     def render(self, buffer):
         r, g, b = self.params["color"]
-        center = self.pos
         tail = self.params["tail_length"]
         
-        start = max(0, int(center - tail - 2))
-        end = min(self.num_leds, int(center + tail + 2))
-        
-        for i in range(start, end):
-            dist = abs(i - center)
-            brightness = 0
-            if dist < 1.0:
-                brightness = 255 
-            elif dist < tail:
-                brightness = int(255 * (1 - (dist / tail)))
-            else:
-                brightness = 0
+        for scanner in self.scanners:
+            center = scanner["pos"]
+            start = max(0, int(center - tail - 2))
+            end = min(self.num_leds, int(center + tail + 2))
             
-            if brightness > 0:
-                idx = i * 3
-                factor = brightness / 255.0
-                buffer[idx] = int(r * factor)
-                buffer[idx+1] = int(g * factor)
-                buffer[idx+2] = int(b * factor)
+            for i in range(start, end):
+                dist = abs(i - center)
+                brightness = 0
+                if dist < 1.0:
+                    brightness = 255 
+                elif dist < tail:
+                    brightness = int(255 * (1 - (dist / tail)))
+                else:
+                    brightness = 0
+                
+                if brightness > 0:
+                    idx = i * 3
+                    factor = brightness / 255.0
+                    nr = buffer[idx] + int(r * factor)
+                    ng = buffer[idx+1] + int(g * factor)
+                    nb = buffer[idx+2] + int(b * factor)
+                    buffer[idx] = min(255, nr)
+                    buffer[idx+1] = min(255, ng)
+                    buffer[idx+2] = min(255, nb)
 
     def randomize(self):
         self.params["color"] = hsv_to_rgb(random.random(), 1.0, 255)
@@ -206,6 +222,13 @@ class WanderingSpotsEffect(BaseEffect):
         count = random.randint(2, 6)
         self.spots = [self.Spot(self.num_leds) for _ in range(count)]
 
+    def add_instance(self):
+        self.spots.append(self.Spot(self.num_leds))
+
+    def remove_instance(self):
+        if len(self.spots) > 1:
+            self.spots.pop()
+
 class SparkleEffect(BaseEffect):
     def __init__(self, num_leds, color=None, speed=10, density=5):
         super().__init__(num_leds)
@@ -259,6 +282,12 @@ class SparkleEffect(BaseEffect):
              self.params["color"] = None # Random colors
         else:
              self.params["color"] = hsv_to_rgb(random.random(), 1.0, 255)
+
+    def add_instance(self):
+        self.params["density"] = min(100, self.params["density"] + 5)
+
+    def remove_instance(self):
+        self.params["density"] = max(1, self.params["density"] - 5)
 
 from .oklch import oklch_to_rgb
 
@@ -360,6 +389,12 @@ class RainbowEffect(BaseEffect):
     def randomize(self):
         self.params["speed"] = random.randint(1, 20)
         self.params["scale"] = random.uniform(0.05, 0.5)
+
+    def add_instance(self):
+        self.params["scale"] = max(0.01, self.params["scale"] - 0.05)
+
+    def remove_instance(self):
+        self.params["scale"] = min(2.0, self.params["scale"] + 0.05)
 
 class PulseEffect(BaseEffect):
     def __init__(self, num_leds, color=(0, 0, 255), speed=1.0):
@@ -616,3 +651,9 @@ class FadingSparkleEffect(BaseEffect):
              
         self.params["num_fading"] = random.randint(1, 5)
         self.params["fade_duration"] = random.randint(1000, 3000)
+
+    def add_instance(self):
+        self.params["num_fading"] = min(50, self.params["num_fading"] + 1)
+
+    def remove_instance(self):
+        self.params["num_fading"] = max(1, self.params["num_fading"] - 1)

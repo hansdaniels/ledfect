@@ -361,6 +361,16 @@ class App:
                     self.config.set("brightness", self.brightness)
                     print(f"Brightness DOWN: {self.brightness}/255")
 
+                elif code in ir_mapping["0_10+"]:
+                    if hasattr(self.current_effect, 'add_instance'):
+                        self.current_effect.add_instance()
+                        print("Added effect instance / Increased value")
+                        
+                elif code in ir_mapping["BACK"]:
+                    if hasattr(self.current_effect, 'remove_instance'):
+                        self.current_effect.remove_instance()
+                        print("Removed effect instance / Decreased value")
+
             await asyncio.sleep_ms(50)
 
     async def pir_loop(self):
