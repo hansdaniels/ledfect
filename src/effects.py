@@ -32,6 +32,10 @@ class BaseEffect:
     def remove_instance(self):
         pass
 
+    def set_color(self, color):
+        """Set the main color of the effect."""
+        pass
+
 class SolidColorEffect(BaseEffect):
     def __init__(self, num_leds, color=(255, 255, 255), kelvin=None):
         super().__init__(num_leds)
@@ -52,6 +56,10 @@ class SolidColorEffect(BaseEffect):
             buffer[idx+1] = int(g)
             buffer[idx+2] = int(b) 
             
+    def set_color(self, color):
+        self.params["kelvin"] = None
+        self.params["color"] = color
+
     def randomize(self):
         # Random hue or temperature
         if random.random() > 0.5:
@@ -144,6 +152,10 @@ class LarsonScannerEffect(BaseEffect):
                     buffer[idx+1] = min(255, ng)
                     buffer[idx+2] = min(255, nb)
 
+    def set_color(self, color):
+        if self.scanners:
+            self.scanners[-1]["color"] = color
+
     def randomize(self):
         # Randomize all scanners
         for scanner in self.scanners:
@@ -225,6 +237,10 @@ class WanderingSpotsEffect(BaseEffect):
                 buffer[idx+1] = min(255, ng)
                 buffer[idx+2] = min(255, nb)
 
+    def set_color(self, color):
+        if self.spots:
+            self.spots[-1].color = color
+
     def randomize(self):
         # Reset spots with new params
         count = random.randint(2, 6)
@@ -282,6 +298,9 @@ class SparkleEffect(BaseEffect):
                 buffer[idx] = int(r * factor)
                 buffer[idx+1] = int(g * factor)
                 buffer[idx+2] = int(b * factor)
+
+    def set_color(self, color):
+        self.params["color"] = color
 
     def randomize(self):
         self.params["speed"] = random.randint(5, 20)
@@ -394,6 +413,9 @@ class RainbowEffect(BaseEffect):
             buffer[idx_buf+1] = g
             buffer[idx_buf+2] = b
 
+    def set_color(self, color):
+        pass # Rainbow ignores solid colors
+
     def randomize(self):
         self.params["speed"] = random.randint(1, 20)
         self.params["scale"] = random.uniform(0.05, 0.5)
@@ -427,6 +449,9 @@ class PulseEffect(BaseEffect):
             buffer[idx+1] = g
             buffer[idx+2] = b
 
+    def set_color(self, color):
+        self.params["color"] = color
+
     def randomize(self):
         self.params["color"] = hsv_to_rgb(random.random(), 1.0, 255)
         self.params["speed"] = random.uniform(0.5, 3.0)
@@ -445,12 +470,31 @@ class LavaLampEffect(BaseEffect):
             if self.pos > self.limit or self.pos < 0:
                 self.velocity *= -1
 
-    def __init__(self, num_leds, base_color=(10, 0, 30), blob_color=(255, 100, 0), num_blobs=3):
+    def __init__(self, num_leds, base_color=(10, 0, 30), blob_color=(255, 60, 0), num_blobs=3):
         super().__init__(num_leds)
         self.params = {
-            "base_color": base_color
+            "base_color": base_color,
+            "blob_color": blob_color,
         }
         self.blobs = [self.Blob(num_leds, blob_color) for _ in range(num_blobs)]
+
+    def _derive_base_color(self, blob_color):
+        # Keep the backdrop dark and related to the blob hue for a calmer look.
+        r, g, b = blob_color
+        cr = 255 - r
+        cg = 255 - g
+        cb = 255 - b
+        return (
+            min(255, int(r * 0.05 + cr * 0.12)),
+            min(255, int(g * 0.05 + cg * 0.12)),
+            min(255, int(b * 0.05 + cb * 0.12)),
+        )
+
+    def set_color(self, color):
+        self.params["blob_color"] = color
+        self.params["base_color"] = self._derive_base_color(color)
+        for blob in self.blobs:
+            blob.color = color
 
     def update(self, time_ms):
         # Only update if logical time actually advances (supports pausing)
@@ -494,16 +538,42 @@ class LavaLampEffect(BaseEffect):
                 buffer[idx+1] = min(255, g)
                 buffer[idx+2] = min(255, b)
 
+    def set_color(self, color):
+        # We use the selected color's Hue to define the mood.
+        # Template: Base is dark (Value ~30), Blobs are bright complementary (Value 255)
+        r, g, b = color
+        
+        # Convert RGB to HSV roughly to extract Hue
+        r_f, g_f, b_f = r / 255.0, g / 255.0, b / 255.0
+        cmax = max(r_f, g_f, b_f)
+        cmin = min(r_f, g_f, b_f)
+        delta = cmax - cmin
+        
+        if delta == 0:
+            h = 0
+        elif cmax == r_f:
+            h = ((g_f - b_f) / delta) % 6
+        elif cmax == g_f:
+            h = ((b_f - r_f) / delta) + 2
+        else:
+            h = ((r_f - g_f) / delta) + 4
+            
+        h = h / 6.0
+        
+        # Base color is the selected color, but VERY dark (Value=30) so additive blending works
+        base_r, base_g, base_b = hsv_to_rgb(h, 1.0, 30)
+        self.params["base_color"] = (base_r, base_g, base_b)
+        
+        # Blobs are the strictly complementary color, fully bright (Value=255)
+        comp_h = (h + 0.5) % 1.0
+        comp_r, comp_g, comp_b = hsv_to_rgb(comp_h, 1.0, 255)
+            
+        for blob in self.blobs:
+            blob.color = (comp_r, comp_g, comp_b)
+
     def randomize(self):
-        # Generate complementary or triadic colors for contrast
-        hue_blob = random.random()
-        hue_base = (hue_blob + 0.5 + random.uniform(-0.1, 0.1)) % 1.0
-        
-        blob_color = hsv_to_rgb(hue_blob, 1.0, 255)
-        # Darker base color to make blobs pop
-        base_color = hsv_to_rgb(hue_base, 1.0, 50) 
-        
-        self.params["base_color"] = base_color
+        blob_color = hsv_to_rgb(random.random(), 1.0, 255)
+        self.set_color(blob_color)
         num_blobs = random.randint(2, 5)
         self.blobs = [self.Blob(self.num_leds, blob_color) for _ in range(num_blobs)]
 
@@ -650,6 +720,9 @@ class FadingSparkleEffect(BaseEffect):
             buffer[idx_buf+1] = int(g * scale)
             buffer[idx_buf+2] = int(b * scale)
             
+    def set_color(self, color):
+        self.params["color"] = color
+        
     def randomize(self):
         # Change configuration randomly
         if random.random() > 0.5:

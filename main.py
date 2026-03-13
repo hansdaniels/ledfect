@@ -26,6 +26,18 @@ BRIGHTNESS_STEPS = [
     57, 71, 86, 104, 124, 145, 169, 195, 224, 255
 ]
 
+IR_COLOR_PRESETS = {
+    "1": (255, 0, 0),
+    "2": (255, 128, 0),
+    "3": (255, 255, 0),
+    "4": (0, 255, 0),
+    "5": (0, 255, 255),
+    "6": (0, 0, 255),
+    "7": (255, 0, 255),
+    "8": (128, 0, 255),
+    "9": (255, 255, 255),
+}
+
 class App:
     def __init__(self):
         self.config = ConfigManager()
@@ -91,7 +103,7 @@ class App:
         
         effect = None
         if name == "SolidColor":
-            effect = SolidColorEffect(NUM_LEDS, color=(255, 100, 0))
+            effect = SolidColorEffect(NUM_LEDS, color=(255, 60, 0))
         elif name == "LarsonScanner":
             effect = LarsonScannerEffect(NUM_LEDS)
         elif name == "WanderingSpots":
@@ -128,6 +140,37 @@ class App:
         if "brightness" in data:
             self.brightness = int(data["brightness"])
             self.config.set("brightness", self.brightness)
+
+    def _apply_color_to_current_effect(self, color):
+        effect = self.current_effect
+        if effect is None:
+            return False
+
+        if hasattr(effect, "set_color"):
+            effect.set_color(color)
+            return True
+
+        # Multi-instance effects: apply to the most recently added instance.
+        if hasattr(effect, "scanners") and effect.scanners:
+            effect.scanners[-1]["color"] = color
+            return True
+
+        if hasattr(effect, "spots") and effect.spots:
+            effect.spots[-1].color = color
+            return True
+
+        if hasattr(effect, "blobs") and effect.blobs:
+            effect.blobs[-1].color = color
+            return True
+
+        params = getattr(effect, "params", None)
+        if isinstance(params, dict) and "color" in params:
+            params["color"] = color
+            if "kelvin" in params:
+                params["kelvin"] = None
+            return True
+
+        return False
 
     async def run(self):
         # Start loops
@@ -315,7 +358,19 @@ class App:
                     "9":          build_map(0xA9),
                 }
 
-                if code in ir_mapping["STOP/MODE"]:
+                color_key = None
+                for key in IR_COLOR_PRESETS:
+                    if code in ir_mapping[key]:
+                        color_key = key
+                        break
+
+                if color_key is not None:
+                    color = IR_COLOR_PRESETS[color_key]
+                    if self._apply_color_to_current_effect(color):
+                        print(f"Applied IR color {color_key}: {color}")
+                    else:
+                        print(f"Current effect does not support direct color changes: {self.current_effect_name}")
+                elif code in ir_mapping["STOP/MODE"]:
                     self.is_off_manual = not self.is_off_manual
                     if self.is_off_manual:
                          print("Manual Off (IR)")
@@ -373,6 +428,24 @@ class App:
                     if hasattr(self.current_effect, 'remove_instance'):
                         self.current_effect.remove_instance()
                         print("Removed effect instance / Decreased value")
+                        
+                else:
+                    for key, num_color in [
+                        ("1", (255, 0, 0)),     # Red
+                        ("2", (0, 255, 0)),     # Green
+                        ("3", (0, 0, 255)),     # Blue
+                        ("4", (255, 60, 0)),    # Orange (reduced green)
+                        ("5", (0, 255, 128)),   # Turquoise
+                        ("6", (128, 0, 255)),   # Purple
+                        ("7", (255, 150, 0)),   # Yellow (reduced green)
+                        ("8", (0, 255, 255)),   # Cyan
+                        ("9", (255, 0, 128))    # Pink
+                    ]:
+                        if code in ir_mapping[key]:
+                            if hasattr(self.current_effect, 'set_color'):
+                                self.current_effect.set_color(num_color)
+                                print(f"Set color pattern {key} {num_color}")
+                            break
 
             await asyncio.sleep_ms(50)
 
