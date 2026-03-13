@@ -43,6 +43,7 @@ class App:
         # Logic
         self.buffer = bytearray(NUM_LEDS * 3)
         self.blank_buffer = bytearray(NUM_LEDS * 3)
+        self._last_written_buffer = bytearray(NUM_LEDS * 3)
         self.current_effect = None
         self.current_effect_name = self.config.get("effect", "SolidColor")
         self.brightness = self.config.get("brightness", 255)
@@ -63,6 +64,7 @@ class App:
         self._render_buffer = bytearray(NUM_LEDS * 3)
         self._render_ready = False
         self._shutdown_render = False
+        self._has_written_frame = False
         _thread.start_new_thread(self._render_worker, ())
 
     def _render_worker(self):
@@ -170,7 +172,7 @@ class App:
                     scale_buffer(self.buffer, final_scale)
                 
                 # Check if the buffer actually changed before writing.
-                if not hasattr(self, '_last_written_buffer') or self.buffer != self._last_written_buffer:
+                if (not self._has_written_frame) or self.buffer != self._last_written_buffer:
                     # Handoff to Second Core
                     # We only signal the thread if it's currently waiting (flag is False)
                     # If it's already busy writing the previous frame, we just skip (frame drop)
@@ -179,14 +181,15 @@ class App:
                         self._render_buffer[:] = self.buffer
                         self._render_ready = True # Signals thread to go!
                     
-                    self._last_written_buffer = bytearray(self.buffer)
+                    self._last_written_buffer[:] = self.buffer
+                    self._has_written_frame = True
                     
                 self._is_black_written = False
             else:
                 # Off state
                 if getattr(self, '_is_black_written', False) == False:
                     if not self._render_ready:
-                        self._render_buffer[:] = bytearray(NUM_LEDS * 3)
+                        self._render_buffer[:] = self.blank_buffer
                         self._render_ready = True
                     self._is_black_written = True
 
