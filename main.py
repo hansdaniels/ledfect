@@ -1,10 +1,12 @@
 import uasyncio as asyncio
 import time
 import _thread
+import machine
 from src.config import ConfigManager
 from src.hardware import StripController, Button, Potentiometer, PIRSensor, IRReceiver, LightSensor, Buzzer
 from src.effects import SolidColorEffect, LarsonScannerEffect, WanderingSpotsEffect, SparkleEffect, RainbowEffect, PulseEffect, LavaLampEffect, FadingSparkleEffect
 from src.web_server import WebServer
+from src.wifi_manager import WiFiManager
 from src.utils import scale_buffer
 import gc
 
@@ -46,8 +48,8 @@ IR_COLOR_PRESETS = {
 }
 
 class App:
-    def __init__(self):
-        self.config = ConfigManager()
+    def __init__(self, config=None):
+        self.config = config or ConfigManager()
         
         # Hardware
         self.strip = StripController(PIN_LEDS, NUM_LEDS)
@@ -572,10 +574,37 @@ class App:
             await asyncio.sleep(2) # 2 seconds
 
 app_instance = None
+BOOT_SETUP_HOLD_MS = 800
+
+
+def should_start_wifi_setup():
+    pin = machine.Pin(PIN_BTN_C, machine.Pin.IN, machine.Pin.PULL_UP)
+    start = time.ticks_ms()
+    while time.ticks_diff(time.ticks_ms(), start) < BOOT_SETUP_HOLD_MS:
+        if pin.value() != 0:
+            return False
+        time.sleep_ms(20)
+    return pin.value() == 0
+
+
+async def bootstrap_wifi(config):
+    wifi = WiFiManager(config)
+    if should_start_wifi_setup():
+        print("Center button held during boot. Starting Wi-Fi setup portal.")
+        await wifi.run_setup_portal()
+        return wifi
+
+    if wifi.has_saved_credentials():
+        if not wifi.connect_saved():
+            print("Wi-Fi startup connection failed. Flashing SOS on onboard LED.")
+            await wifi.flash_sos(2)
+    return wifi
 
 async def main():
     global app_instance
-    app_instance = App()
+    config = ConfigManager()
+    await bootstrap_wifi(config)
+    app_instance = App(config=config)
     await app_instance.run()
 
 if __name__ == "__main__":
