@@ -2,7 +2,7 @@ import uasyncio as asyncio
 import time
 import _thread
 from src.config import ConfigManager
-from src.hardware import StripController, Button, Potentiometer, PIRSensor, IRReceiver, LightSensor
+from src.hardware import StripController, Button, Potentiometer, PIRSensor, IRReceiver, LightSensor, Buzzer
 from src.effects import SolidColorEffect, LarsonScannerEffect, WanderingSpotsEffect, SparkleEffect, RainbowEffect, PulseEffect, LavaLampEffect, FadingSparkleEffect
 from src.web_server import WebServer
 from src.utils import scale_buffer
@@ -17,9 +17,15 @@ PIN_POT = 27
 PIN_PIR = 15
 PIN_IR = 14
 PIN_LIGHT = 21
+PIN_BUZZER = 19
 
 NUM_LEDS = 300
 PIR_TIMEOUT_SECONDS = 5 * 60
+NIGHT_EFFECT_NAME = "FadingSparkle"
+NIGHT_BRIGHTNESS = 18
+LIGHT_SENSOR_DARK_VALUE = 1
+LIGHT_TRIGGER_COUNT = 3
+LIGHT_RELEASE_COUNT = 8
 
 # Gamma-corrected brightness steps for visually linear changes
 BRIGHTNESS_STEPS = [
@@ -52,6 +58,7 @@ class App:
         self.pir = PIRSensor(PIN_PIR)
         self.ir = IRReceiver(PIN_IR)
         self.light = LightSensor(PIN_LIGHT)
+        self.buzzer = Buzzer(PIN_BUZZER)
         
         # Logic
         self.buffer = bytearray(NUM_LEDS * 3)
@@ -62,11 +69,21 @@ class App:
         self.brightness = self.config.get("brightness", 255)
         self.pir_enabled = self.config.get("pir_enabled", True)
         self.pir_timeout_enabled = self.config.get("pir_timeout_enabled", False)
+        self.is_paused = False
         self.last_motion_time = time.time()
         self.is_off_due_to_timeout = False
         self.is_off_manual = False
         self.manual_off_brightness_cache = 255
         self.speed_scaler = 1.0  # Master speed control (1.0 = 100%)
+        self.night_mode_armed = self.config.get("night_mode_armed", False)
+        self.night_mode_active = False
+        self.night_effect_name = self.config.get("night_effect", NIGHT_EFFECT_NAME)
+        self.night_brightness = self.config.get("night_brightness", NIGHT_BRIGHTNESS)
+        self.light_dark_value = self.config.get("light_dark_value", LIGHT_SENSOR_DARK_VALUE)
+        self._light_dark_counter = 0
+        self._light_bright_counter = 0
+        self._saved_effect_name = None
+        self._saved_brightness = None
         
         # Load initial effect
         self._load_effect(self.current_effect_name)
@@ -99,6 +116,62 @@ class App:
         if self.is_off_due_to_timeout:
             print("Activity detected! Waking up.")
             self.is_off_due_to_timeout = False
+
+    def _trigger_beep(self, duration_ms=50):
+        if self.buzzer.is_enabled():
+            asyncio.create_task(self.buzzer.beep(duration_ms=duration_ms))
+
+    def _set_manual_off(self, value):
+        self.is_off_manual = value
+        if self.is_off_manual:
+            print("Manual Off")
+            self._trigger_beep(120)
+        else:
+            print("Manual On")
+            self._trigger_beep(70)
+
+    def _set_night_mode_armed(self, value):
+        armed = bool(value)
+        if self.night_mode_armed == armed:
+            return
+        self.night_mode_armed = armed
+        self.config.set("night_mode_armed", armed)
+        if not armed and self.night_mode_active:
+            self._deactivate_night_mode()
+        print("Night mode armed" if armed else "Night mode disarmed")
+        self._trigger_beep(40 if armed else 120)
+
+    def _activate_night_mode(self):
+        if self.night_mode_active:
+            return
+        self.night_mode_active = True
+        self._saved_effect_name = self.current_effect_name
+        self._saved_brightness = self.brightness
+        self._load_effect(self.night_effect_name)
+        self.brightness = self.night_brightness
+        self.config.set("brightness", self.brightness)
+        print("Night mode active")
+
+    def _deactivate_night_mode(self):
+        if not self.night_mode_active:
+            return
+        self.night_mode_active = False
+        restore_effect = self._saved_effect_name or self.config.get("effect", "SolidColor")
+        restore_brightness = self._saved_brightness
+        self._saved_effect_name = None
+        self._saved_brightness = None
+        self._load_effect(restore_effect)
+        if restore_brightness is not None:
+            self.brightness = restore_brightness
+            self.config.set("brightness", self.brightness)
+        print("Night mode inactive")
+
+    def _should_output_light(self):
+        if self.is_off_due_to_timeout or self.is_off_manual:
+            return False
+        if self.night_mode_armed and not self.night_mode_active:
+            return False
+        return True
 
     def _load_effect(self, name):
         self.current_effect_name = name
@@ -133,6 +206,8 @@ class App:
             "brightness": self.brightness,
             "pir_enabled": self.pir_enabled,
             "pir_timeout_enabled": self.pir_timeout_enabled,
+            "night_mode_armed": self.night_mode_armed,
+            "night_mode_active": self.night_mode_active,
             "motion_timeout": self.is_off_due_to_timeout,
             "fps": 0 # TODO measure fps
         }
@@ -158,6 +233,8 @@ class App:
                 self.reset_activity()
             else:
                 self.is_off_due_to_timeout = False
+        if "night_mode_armed" in data:
+            self._set_night_mode_armed(data["night_mode_armed"])
 
     def _apply_color_to_current_effect(self, color):
         effect = self.current_effect
@@ -214,7 +291,7 @@ class App:
             last_t = t0
             
             # Logic Update (Only render if ON)
-            is_on = not self.is_off_due_to_timeout and not self.is_off_manual
+            is_on = self._should_output_light()
             
             if is_on:
                 if self.current_effect:
@@ -307,11 +384,7 @@ class App:
             elif evt_c == 2:
                 # Long Press: Toggle On/Off
                 print("Button Center Long: Toggle On/Off")
-                self.is_off_manual = not self.is_off_manual
-                if self.is_off_manual:
-                     print("Manual Off")
-                else:
-                     print("Manual On")
+                self._set_manual_off(not self.is_off_manual)
 
             # Potentiometer
             # Read in animation loop for speed? Or here?
@@ -388,11 +461,7 @@ class App:
                     else:
                         print(f"Current effect does not support direct color changes: {self.current_effect_name}")
                 elif code in ir_mapping["STOP/MODE"]:
-                    self.is_off_manual = not self.is_off_manual
-                    if self.is_off_manual:
-                         print("Manual Off (IR)")
-                    else:
-                         print("Manual On (IR)")
+                    self._set_manual_off(not self.is_off_manual)
 
                 elif code in ir_mapping["SETUP"]:
                     self.pir_timeout_enabled = not self.pir_timeout_enabled
@@ -403,6 +472,9 @@ class App:
                     else:
                         self.is_off_due_to_timeout = False
                         print("PIR timeout disabled")
+
+                elif code in ir_mapping["ENTER/SAVE"]:
+                    self._set_night_mode_armed(not self.night_mode_armed)
                          
                 elif code in ir_mapping["UP"]: # Up = Next Effect
                     try:
@@ -479,7 +551,24 @@ class App:
     async def light_sensor_loop(self):
         while True:
             val = self.light.read()
-            print(f"Lichtsensor (GP{PIN_LIGHT}): {val}")
+            is_dark = val == self.light_dark_value
+
+            if is_dark:
+                self._light_dark_counter += 1
+                self._light_bright_counter = 0
+            else:
+                self._light_bright_counter += 1
+                self._light_dark_counter = 0
+
+            if self.night_mode_armed and not self.night_mode_active and self._light_dark_counter >= LIGHT_TRIGGER_COUNT:
+                self._activate_night_mode()
+            elif self.night_mode_active and self._light_bright_counter >= LIGHT_RELEASE_COUNT:
+                self._deactivate_night_mode()
+
+            print(
+                f"Lichtsensor (GP{PIN_LIGHT}): {val} dark={is_dark} "
+                f"armed={self.night_mode_armed} active={self.night_mode_active}"
+            )
             await asyncio.sleep(2) # 2 seconds
 
 app_instance = None

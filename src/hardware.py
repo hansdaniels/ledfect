@@ -130,3 +130,29 @@ class LightSensor:
     
     def read(self):
         return self.pin.value()
+
+
+class Buzzer:
+    def __init__(self, pin_num=None):
+        self.pin = None
+        if pin_num is not None:
+            self.pin = machine.Pin(pin_num, machine.Pin.OUT)
+            self.pin.value(0)
+
+    def is_enabled(self):
+        return self.pin is not None
+
+    def on(self):
+        if self.pin is not None:
+            self.pin.value(1)
+
+    def off(self):
+        if self.pin is not None:
+            self.pin.value(0)
+
+    async def beep(self, duration_ms=50):
+        if self.pin is None:
+            return
+        self.on()
+        await asyncio.sleep_ms(duration_ms)
+        self.off()
