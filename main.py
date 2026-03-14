@@ -19,6 +19,7 @@ PIN_IR = 14
 PIN_LIGHT = 21
 
 NUM_LEDS = 300
+PIR_TIMEOUT_SECONDS = 5 * 60
 
 # Gamma-corrected brightness steps for visually linear changes
 BRIGHTNESS_STEPS = [
@@ -60,6 +61,7 @@ class App:
         self.current_effect_name = self.config.get("effect", "SolidColor")
         self.brightness = self.config.get("brightness", 255)
         self.pir_enabled = self.config.get("pir_enabled", True)
+        self.pir_timeout_enabled = self.config.get("pir_timeout_enabled", False)
         self.last_motion_time = time.time()
         self.is_off_due_to_timeout = False
         self.is_off_manual = False
@@ -129,6 +131,8 @@ class App:
         return {
             "effect": self.current_effect_name,
             "brightness": self.brightness,
+            "pir_enabled": self.pir_enabled,
+            "pir_timeout_enabled": self.pir_timeout_enabled,
             "motion_timeout": self.is_off_due_to_timeout,
             "fps": 0 # TODO measure fps
         }
@@ -140,6 +144,20 @@ class App:
         if "brightness" in data:
             self.brightness = int(data["brightness"])
             self.config.set("brightness", self.brightness)
+        if "pir_enabled" in data:
+            self.pir_enabled = bool(data["pir_enabled"])
+            self.config.set("pir_enabled", self.pir_enabled)
+            if self.pir_enabled:
+                self.reset_activity()
+            else:
+                self.is_off_due_to_timeout = False
+        if "pir_timeout_enabled" in data:
+            self.pir_timeout_enabled = bool(data["pir_timeout_enabled"])
+            self.config.set("pir_timeout_enabled", self.pir_timeout_enabled)
+            if self.pir_timeout_enabled:
+                self.reset_activity()
+            else:
+                self.is_off_due_to_timeout = False
 
     def _apply_color_to_current_effect(self, color):
         effect = self.current_effect
@@ -223,9 +241,8 @@ class App:
                     if not self._render_ready:
                         self._render_buffer[:] = self.buffer
                         self._render_ready = True # Signals thread to go!
-                    
-                    self._last_written_buffer[:] = self.buffer
-                    self._has_written_frame = True
+                        self._last_written_buffer[:] = self.buffer
+                        self._has_written_frame = True
                     
                 self._is_black_written = False
             else:
@@ -234,7 +251,7 @@ class App:
                     if not self._render_ready:
                         self._render_buffer[:] = self.blank_buffer
                         self._render_ready = True
-                    self._is_black_written = True
+                        self._is_black_written = True
 
             # Frame pacing
             t1 = time.ticks_ms()
@@ -376,6 +393,16 @@ class App:
                          print("Manual Off (IR)")
                     else:
                          print("Manual On (IR)")
+
+                elif code in ir_mapping["SETUP"]:
+                    self.pir_timeout_enabled = not self.pir_timeout_enabled
+                    self.config.set("pir_timeout_enabled", self.pir_timeout_enabled)
+                    if self.pir_timeout_enabled:
+                        self.reset_activity()
+                        print("PIR timeout enabled (5 min)")
+                    else:
+                        self.is_off_due_to_timeout = False
+                        print("PIR timeout disabled")
                          
                 elif code in ir_mapping["UP"]: # Up = Next Effect
                     try:
@@ -428,42 +455,24 @@ class App:
                     if hasattr(self.current_effect, 'remove_instance'):
                         self.current_effect.remove_instance()
                         print("Removed effect instance / Decreased value")
-                        
-                else:
-                    for key, num_color in [
-                        ("1", (255, 0, 0)),     # Red
-                        ("2", (0, 255, 0)),     # Green
-                        ("3", (0, 0, 255)),     # Blue
-                        ("4", (255, 60, 0)),    # Orange (reduced green)
-                        ("5", (0, 255, 128)),   # Turquoise
-                        ("6", (128, 0, 255)),   # Purple
-                        ("7", (255, 150, 0)),   # Yellow (reduced green)
-                        ("8", (0, 255, 255)),   # Cyan
-                        ("9", (255, 0, 128))    # Pink
-                    ]:
-                        if code in ir_mapping[key]:
-                            if hasattr(self.current_effect, 'set_color'):
-                                self.current_effect.set_color(num_color)
-                                print(f"Set color pattern {key} {num_color}")
-                            break
 
             await asyncio.sleep_ms(50)
 
     async def pir_loop(self):
-        # Timeout: 10 mins = 600 * 1000 ms
-        TIMEOUT_MS = 600 * 1000
         while True:
-            if self.pir.check(): 
+            if self.pir_enabled and self.pir.check():
                 # Motion detected
                 self.reset_activity()
             
             # Check timeout
-            if not self.is_off_due_to_timeout:
-                if time.time() - self.last_motion_time > 600: # 600 seconds
-                    print("No motion for 10m. Turning off.")
+            if self.pir_timeout_enabled and not self.is_off_due_to_timeout:
+                if time.time() - self.last_motion_time > PIR_TIMEOUT_SECONDS:
+                    print("No motion for 5m. Turning off.")
                     self.is_off_due_to_timeout = True
                     # Clear strip
                     self.strip.write(bytearray(NUM_LEDS * 3)) # Black
+            elif not self.pir_timeout_enabled and self.is_off_due_to_timeout:
+                self.is_off_due_to_timeout = False
             
             await asyncio.sleep_ms(1000)
 

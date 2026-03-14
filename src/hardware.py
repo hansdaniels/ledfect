@@ -92,8 +92,12 @@ class PIRSensor:
             self._last_trigger = now
 
     def check(self):
+        now = time.ticks_ms()
         if self.triggered:
             self.triggered = False
+            return True
+        if self.pin.value() and time.ticks_diff(now, self._last_trigger) > 2000:
+            self._last_trigger = now
             return True
         return False
 
