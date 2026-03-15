@@ -575,10 +575,31 @@ class App:
 
 app_instance = None
 BOOT_SETUP_HOLD_MS = 800
+BOOT_INDICATOR_BLINK_MS = 120
+
+
+def show_boot_indicator():
+    try:
+        led = machine.Pin("LED", machine.Pin.OUT)
+    except Exception:
+        return
+
+    for _ in range(3):
+        led.value(1)
+        time.sleep_ms(BOOT_INDICATOR_BLINK_MS)
+        led.value(0)
+        time.sleep_ms(BOOT_INDICATOR_BLINK_MS)
 
 
 def should_start_wifi_setup():
     pin = machine.Pin(PIN_BTN_C, machine.Pin.IN, machine.Pin.PULL_UP)
+    # Give the input a moment to settle after power-up before treating it
+    # as an intentional long press.
+    time.sleep_ms(300)
+
+    if pin.value() != 0:
+        return False
+
     start = time.ticks_ms()
     while time.ticks_diff(time.ticks_ms(), start) < BOOT_SETUP_HOLD_MS:
         if pin.value() != 0:
@@ -609,6 +630,8 @@ async def main():
 
 if __name__ == "__main__":
     try:
+        print("Boot: starting main.py")
+        show_boot_indicator()
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Stopped by User.")
