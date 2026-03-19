@@ -3,7 +3,7 @@ import time
 import _thread
 import machine
 from src.config import ConfigManager
-from src.hardware import StripController, Button, Potentiometer, PIRSensor, IRReceiver, LightSensor, Buzzer
+from src.hardware import StripController, Button, PIRSensor, IRReceiver, LightSensor, Buzzer
 from src.effects import SolidColorEffect, LarsonScannerEffect, WanderingSpotsEffect, SparkleEffect, RainbowEffect, PulseEffect, LavaLampEffect, FadingSparkleEffect
 from src.web_server import WebServer
 from src.wifi_manager import WiFiManager
@@ -14,8 +14,6 @@ import gc
 PIN_LEDS = 22
 PIN_BTN_R = 9
 PIN_BTN_C = 12
-PIN_BTN_L = 10
-PIN_POT = 27
 PIN_PIR = 15
 PIN_IR = 14
 PIN_LIGHT = 21
@@ -55,8 +53,6 @@ class App:
         self.strip = StripController(PIN_LEDS, NUM_LEDS)
         self.btn_r = Button(PIN_BTN_R, "Next")
         self.btn_c = Button(PIN_BTN_C, "Mode")
-        self.btn_l = Button(PIN_BTN_L, "Prev")
-        self.pot = Potentiometer(PIN_POT)
         self.pir = PIRSensor(PIN_PIR)
         self.ir = IRReceiver(PIN_IR)
         self.light = LightSensor(PIN_LIGHT)
@@ -345,29 +341,15 @@ class App:
         while True:
             cnt += 1
             if cnt % 100 == 0:
-                print(f"Input Loop Alive (Pot: {self.pot.value:.2f})")
+                print("Input Loop Alive")
             
-            # Buttons
             # Buttons
             if self.btn_r.check() == 1:
                 self.reset_activity()
-                print("Button Right Pressed - Switching Effect")
-                # Next effect
+                print("Button Pressed - Next Effect")
                 try:
                     idx = effects.index(self.current_effect_name)
                     next_idx = (idx + 1) % len(effects)
-                    print(f"Switching to {effects[next_idx]}")
-                    self._load_effect(effects[next_idx])
-                except ValueError:
-                    self._load_effect(effects[0])
-            
-            if self.btn_l.check() == 1:
-                self.reset_activity()
-                print("Button Left Pressed - Prev Effect")
-                 # Prev effect
-                try:
-                    idx = effects.index(self.current_effect_name)
-                    next_idx = (idx - 1) % len(effects)
                     print(f"Switching to {effects[next_idx]}")
                     self._load_effect(effects[next_idx])
                 except ValueError:
@@ -388,11 +370,6 @@ class App:
                 print("Button Center Long: Toggle On/Off")
                 self._set_manual_off(not self.is_off_manual)
 
-            # Potentiometer
-            # Read in animation loop for speed? Or here?
-            # Reading ADC is fast.
-            self.pot.read() 
-            
             # IR Remote
             code = self.ir.get_code()
             if code is not None:
