@@ -14,12 +14,18 @@ STA_POLL_INTERVAL_MS = 250
 class WiFiManager:
     def __init__(self, config):
         self.config = config
-        self.sta = network.WLAN(network.STA_IF)
-        self.ap = network.WLAN(network.AP_IF)
+        self.sta = None  # Lazy-initialized in connect() to avoid blocking __init__
+        self.ap = None   # Lazy-initialized in run_setup_portal()
         self.status_led = machine.Pin("LED", machine.Pin.OUT)
         self.status_led.value(0)
         self._portal_done = False
         self._portal_status = "Select a Wi-Fi network."
+
+    def _ensure_wlan(self):
+        if self.sta is None:
+            self.sta = network.WLAN(network.STA_IF)
+        if self.ap is None:
+            self.ap = network.WLAN(network.AP_IF)
 
     async def flash_sos(self, repeats=2):
         unit_ms = 180
@@ -40,15 +46,16 @@ class WiFiManager:
         ssid = self.config.get("wifi_ssid", "")
         return bool(ssid)
 
-    def connect_saved(self, timeout_ms=STA_CONNECT_TIMEOUT_MS):
+    async def connect_saved(self, timeout_ms=STA_CONNECT_TIMEOUT_MS):
         ssid = self.config.get("wifi_ssid", "")
         password = self.config.get("wifi_password", "")
         if not ssid:
             print("Wi-Fi: no saved credentials.")
             return False
-        return self.connect(ssid, password, timeout_ms=timeout_ms)
+        return await self.connect(ssid, password, timeout_ms=timeout_ms)
 
-    def connect(self, ssid, password="", timeout_ms=STA_CONNECT_TIMEOUT_MS):
+    async def connect(self, ssid, password="", timeout_ms=STA_CONNECT_TIMEOUT_MS):
+        self._ensure_wlan()
         try:
             self.ap.active(False)
             self.sta.active(True)
@@ -85,7 +92,7 @@ class WiFiManager:
             if status in (network.STAT_WRONG_PASSWORD, network.STAT_NO_AP_FOUND, network.STAT_CONNECT_FAIL):
                 print("Wi-Fi failed with status {}".format(status))
                 break
-            time.sleep_ms(STA_POLL_INTERVAL_MS)
+            await asyncio.sleep_ms(STA_POLL_INTERVAL_MS)
 
         self.sta.disconnect()
         print("Wi-Fi: connection timed out.")
@@ -137,6 +144,7 @@ class WiFiManager:
         )
 
     def scan_networks(self):
+        self._ensure_wlan()
         self.sta.active(True)
         seen = {}
         try:
@@ -391,6 +399,7 @@ class WiFiManager:
             await self._safe_close_writer(writer)
 
     async def run_setup_portal(self):
+        self._ensure_wlan()
         self._portal_done = False
         self.sta.active(False)
         self.ap.active(True)

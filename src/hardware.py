@@ -135,6 +135,7 @@ class LightSensor:
 class Buzzer:
     def __init__(self, pin_num=None):
         self.pin = None
+        self._beeping = False
         if pin_num is not None:
             self.pin = machine.Pin(pin_num, machine.Pin.OUT)
             self.pin.value(0)
@@ -151,8 +152,12 @@ class Buzzer:
             self.pin.value(0)
 
     async def beep(self, duration_ms=50):
-        if self.pin is None:
+        if self.pin is None or self._beeping:
             return
-        self.on()
-        await asyncio.sleep_ms(duration_ms)
-        self.off()
+        self._beeping = True
+        try:
+            self.on()
+            await asyncio.sleep_ms(duration_ms)
+            self.off()
+        finally:
+            self._beeping = False

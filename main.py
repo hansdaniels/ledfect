@@ -167,8 +167,6 @@ class App:
     def _should_output_light(self):
         if self.is_off_due_to_timeout or self.is_off_manual:
             return False
-        if self.night_mode_armed and not self.night_mode_active:
-            return False
         return True
 
     def _load_effect(self, name):
@@ -593,16 +591,24 @@ async def bootstrap_wifi(config):
         return wifi
 
     if wifi.has_saved_credentials():
-        if not wifi.connect_saved():
+        if not await wifi.connect_saved():
             print("Wi-Fi startup connection failed. Flashing SOS on onboard LED.")
             await wifi.flash_sos(2)
     return wifi
 
+async def _wifi_bg(config):
+    # Small delay so at least a few frames render before WiFi blocks
+    await asyncio.sleep_ms(500)
+    try:
+        await bootstrap_wifi(config)
+    except Exception as e:
+        print("Wi-Fi background init failed: {}".format(e))
+
 async def main():
     global app_instance
     config = ConfigManager()
-    await bootstrap_wifi(config)
     app_instance = App(config=config)
+    asyncio.create_task(_wifi_bg(config))
     await app_instance.run()
 
 try:  # MicroPython runs main.py directly on boot;
@@ -611,6 +617,19 @@ try:  # MicroPython runs main.py directly on boot;
     asyncio.run(main())
 except KeyboardInterrupt:
     print("Stopped by User.")
+except Exception as e:
+    print("FATAL ERROR: {}".format(e))
+    try:
+        led = machine.Pin("LED", machine.Pin.OUT)
+        for _ in range(10):
+            led.value(1)
+            time.sleep_ms(80)
+            led.value(0)
+            time.sleep_ms(80)
+    except Exception:
+        pass
+    time.sleep_ms(3000)
+    machine.reset()
 finally:
     # Crucial for soft resets in Thonny (pressing STOP button)!
     # Signals the Core 1 while loop to break and exit cleanly
