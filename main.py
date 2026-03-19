@@ -605,24 +605,23 @@ async def main():
     app_instance = App(config=config)
     await app_instance.run()
 
-if __name__ == "__main__":
-    try:
-        print("Boot: starting main.py")
-        show_boot_indicator()
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("Stopped by User.")
-    finally:
-        # Crucial for soft resets in Thonny (pressing STOP button)!
-        # Signals the Core 1 while loop to break and exit cleanly
-        if 'app_instance' in globals() and app_instance is not None:
-            if hasattr(app_instance, '_shutdown_render'):
-                app_instance._shutdown_render = True
+try:  # MicroPython runs main.py directly on boot;
+    print("Boot: starting main.py")
+    show_boot_indicator()
+    asyncio.run(main())
+except KeyboardInterrupt:
+    print("Stopped by User.")
+finally:
+    # Crucial for soft resets in Thonny (pressing STOP button)!
+    # Signals the Core 1 while loop to break and exit cleanly
+    if 'app_instance' in globals() and app_instance is not None:
+        if hasattr(app_instance, '_shutdown_render'):
+            app_instance._shutdown_render = True
+        
+        # We also need to release the lock in case Core 1 is waiting on it!
+        if hasattr(app_instance, '_render_lock') and app_instance._render_lock.locked():
+            app_instance._render_lock.release()
             
-            # We also need to release the lock in case Core 1 is waiting on it!
-            if hasattr(app_instance, '_render_lock') and app_instance._render_lock.locked():
-                app_instance._render_lock.release()
-                
-            print("Core 1 Thread halted.")
-            
-        asyncio.new_event_loop() # Reset
+        print("Core 1 Thread halted.")
+        
+    asyncio.new_event_loop() # Reset
