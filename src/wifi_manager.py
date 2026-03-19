@@ -49,8 +49,13 @@ class WiFiManager:
         return self.connect(ssid, password, timeout_ms=timeout_ms)
 
     def connect(self, ssid, password="", timeout_ms=STA_CONNECT_TIMEOUT_MS):
-        self.ap.active(False)
-        self.sta.active(True)
+        try:
+            self.ap.active(False)
+            self.sta.active(True)
+        except Exception as exc:
+            print("Wi-Fi: CYW43 chip failed to start: {}".format(exc))
+            return False
+
         hostname = self.config.get("wifi_hostname", "pico-led")
         try:
             self.sta.config(hostname=hostname)
@@ -58,13 +63,21 @@ class WiFiManager:
             pass
 
         print("Wi-Fi: connecting to '{}'...".format(ssid))
-        self.sta.disconnect()
-        time.sleep_ms(200)
-        self.sta.connect(ssid, password or "")
+        try:
+            self.sta.disconnect()
+            time.sleep_ms(200)
+            self.sta.connect(ssid, password or "")
+        except Exception as exc:
+            print("Wi-Fi: connect() failed: {}".format(exc))
+            return False
 
         start = time.ticks_ms()
         while time.ticks_diff(time.ticks_ms(), start) < timeout_ms:
-            status = self.sta.status()
+            try:
+                status = self.sta.status()
+            except Exception as exc:
+                print("Wi-Fi: status() error: {}".format(exc))
+                return False
             if status == network.STAT_GOT_IP:
                 ip = self.sta.ifconfig()[0]
                 print("Wi-Fi connected: {}".format(ip))
