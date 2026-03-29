@@ -107,12 +107,26 @@ class IRReceiver:
         from lib.ir_rx import NEC_IR
         self.last_code = None
         self.last_addr = None
+        self.active_code = None
+        self.repeat_count = 0
+        self.long_press_triggered = False
         self.ir = NEC_IR(machine.Pin(pin_num, machine.Pin.IN), self._callback)
         
     def _callback(self, data, addr, ctrl):
-        if data < 0: return # Repeat
+        if data < 0:
+            if self.active_code is not None and not self.long_press_triggered:
+                self.repeat_count += 1
+                if self.repeat_count >= 6: # Reduced threshold (roughly 600-700ms hold for NEC)
+                    if self.last_code is None: # Guarantee we NEVER overwrite an unread short press
+                        self.long_press_triggered = True
+                        self.last_code = self.active_code + 0x1000
+            return
+            
         self.last_code = data
         self.last_addr = addr
+        self.active_code = data
+        self.repeat_count = 0
+        self.long_press_triggered = False
 
     def get_code(self):
         if self.last_code is not None:

@@ -72,7 +72,7 @@ class App:
         self.is_off_due_to_timeout = False
         self.is_off_manual = False
         self.manual_off_brightness_cache = 255
-        self.speed_scaler = 1.0  # Master speed control (1.0 = 100%)
+        self.speed_scaler = self.config.get("speed_scaler", 1.0)  # Master speed control (1.0 = 100%)
         self.night_mode_armed = self.config.get("night_mode_armed", False)
         self.night_mode_active = False
         self.night_effect_name = self.config.get("night_effect", NIGHT_EFFECT_NAME)
@@ -169,6 +169,19 @@ class App:
             return False
         return True
 
+    def _save_effect_state(self):
+        if not self.current_effect:
+            return
+        states = self.config.get("effect_states", {})
+        if not isinstance(states, dict):
+            states = {}
+            
+        states[self.current_effect_name] = self.current_effect.get_state()
+        self.config.config["effect_states"] = states
+        self.config._dirty = True
+        import time
+        self.config._last_change_time = time.ticks_ms()
+
     def _load_effect(self, name):
         self.current_effect_name = name
         
@@ -193,6 +206,11 @@ class App:
             effect = SolidColorEffect(NUM_LEDS, color=(50,50,50)) # Fallback
             
         self.current_effect = effect
+        
+        # Restore saved state if exists
+        states = self.config.get("effect_states", {})
+        if isinstance(states, dict) and name in states:
+            self.current_effect.set_state(states[name])
             
         self.config.set("effect", name)
 
@@ -363,6 +381,7 @@ class App:
                 print("Button Center Short: Randomize")
                 if self.current_effect:
                     self.current_effect.randomize()
+                    self._save_effect_state()
             elif evt_c == 2:
                 # Long Press: Toggle On/Off
                 print("Button Center Long: Toggle On/Off")
@@ -414,6 +433,7 @@ class App:
                     "0_10+":      build_map(0xB4),   
                     "DOWN":       build_map(0xCC),   
                     "BACK":       build_map(0xD8),   
+                    "BACK_LONG":  [c + 0x1000 for c in build_map(0xD8)],
                     "1":          build_map(0x30),
                     "2":          build_map(0x18),
                     "3":          build_map(0x7A),
@@ -434,6 +454,7 @@ class App:
                 if color_key is not None:
                     color = IR_COLOR_PRESETS[color_key]
                     if self._apply_color_to_current_effect(color):
+                        self._save_effect_state()
                         print(f"Applied IR color {color_key}: {color}")
                     else:
                         print(f"Current effect does not support direct color changes: {self.current_effect_name}")
@@ -473,10 +494,12 @@ class App:
                     
                 elif code in ir_mapping["RIGHT"]: # Right = Faster
                     self.speed_scaler = min(5.0, self.speed_scaler + 0.25)
+                    self.config.set("speed_scaler", self.speed_scaler)
                     print(f"Global Speed Increased: {self.speed_scaler:.2f}x")
                     
                 elif code in ir_mapping["LEFT"]: # Left = Slower
                     self.speed_scaler = max(0.1, self.speed_scaler - 0.25)
+                    self.config.set("speed_scaler", self.speed_scaler)
                     print(f"Global Speed Decreased: {self.speed_scaler:.2f}x")
                     
                 elif code in ir_mapping["PLAY/PAUSE"]:
@@ -498,12 +521,27 @@ class App:
                 elif code in ir_mapping["0_10+"]:
                     if hasattr(self.current_effect, 'add_instance'):
                         self.current_effect.add_instance()
+                        self._save_effect_state()
                         print("Added effect instance / Increased value")
                         
                 elif code in ir_mapping["BACK"]:
                     if hasattr(self.current_effect, 'remove_instance'):
                         self.current_effect.remove_instance()
+                        self._save_effect_state()
                         print("Removed effect instance / Decreased value")
+                        
+                elif code in ir_mapping["BACK_LONG"]:
+                    print("Long press BACK detected! Resetting current effect.")
+                    self._trigger_beep(150)
+                    states = self.config.get("effect_states", {})
+                    if self.current_effect_name in states:
+                        del states[self.current_effect_name]
+                        self.config.config["effect_states"] = states
+                        self.config._dirty = True
+                        import time
+                        self.config._last_change_time = time.ticks_ms()
+                        self.config.save()
+                    self._load_effect(self.current_effect_name)
 
             await asyncio.sleep_ms(50)
 

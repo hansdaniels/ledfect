@@ -99,6 +99,13 @@ class LarsonScannerEffect(BaseEffect):
         if len(self.scanners) > 1:
             self.scanners.pop()
 
+    def get_state(self):
+        return {"scanners": self.scanners}
+
+    def set_state(self, state):
+        if "scanners" in state:
+            self.scanners = state["scanners"]
+
     def update(self, time_ms):
         # State-based bounce logic for variable speed
         if not hasattr(self, 'last_time'):
@@ -252,6 +259,20 @@ class WanderingSpotsEffect(BaseEffect):
     def remove_instance(self):
         if len(self.spots) > 1:
             self.spots.pop()
+
+    def get_state(self):
+        return {
+            "num_spots": len(self.spots),
+            "color": self.spots[-1].color if self.spots else (255, 255, 255)
+        }
+
+    def set_state(self, state):
+        if "num_spots" in state:
+            num = state["num_spots"]
+            color = state.get("color", (255, 255, 255))
+            self.spots = [self.Spot(self.num_leds) for _ in range(num)]
+            for s in self.spots:
+                s.color = color
 
 class SparkleEffect(BaseEffect):
     def __init__(self, num_leds, color=None, speed=10, density=5):
@@ -456,6 +477,7 @@ class PulseEffect(BaseEffect):
         self.params["color"] = hsv_to_rgb(random.random(), 1.0, 255)
         self.params["speed"] = random.uniform(0.5, 3.0)
 
+
 class LavaLampEffect(BaseEffect):
     class Blob:
         def __init__(self, num_leds, color):
@@ -479,7 +501,6 @@ class LavaLampEffect(BaseEffect):
         self.blobs = [self.Blob(num_leds, blob_color) for _ in range(num_blobs)]
 
     def _derive_base_color(self, blob_color):
-        # Keep the backdrop dark and related to the blob hue for a calmer look.
         r, g, b = blob_color
         cr = 255 - r
         cg = 255 - g
@@ -490,14 +511,7 @@ class LavaLampEffect(BaseEffect):
             min(255, int(b * 0.05 + cb * 0.12)),
         )
 
-    def set_color(self, color):
-        self.params["blob_color"] = color
-        self.params["base_color"] = self._derive_base_color(color)
-        for blob in self.blobs:
-            blob.color = color
-
     def update(self, time_ms):
-        # Only update if logical time actually advances (supports pausing)
         if not hasattr(self, '_last_time'):
             self._last_time = time_ms
             return
@@ -525,12 +539,10 @@ class LavaLampEffect(BaseEffect):
             for i in range(start, end):
                 dist = abs(i - blob.pos)
                 if dist > blob.size * 2: continue
-                # Increased blob influence slightly for visibility
                 val = math.exp(-(dist*dist)/(2*(blob.size/2.2)**2)) 
                 if val < 0.05: continue
                 
                 idx = i * 3
-                # Additive blending but clamped
                 r = buffer[idx] + int(blob.color[0] * val)
                 g = buffer[idx+1] + int(blob.color[1] * val)
                 b = buffer[idx+2] + int(blob.color[2] * val)
@@ -539,11 +551,7 @@ class LavaLampEffect(BaseEffect):
                 buffer[idx+2] = min(255, b)
 
     def set_color(self, color):
-        # We use the selected color's Hue to define the mood.
-        # Template: Base is dark (Value ~30), Blobs are bright complementary (Value 255)
         r, g, b = color
-        
-        # Convert RGB to HSV roughly to extract Hue
         r_f, g_f, b_f = r / 255.0, g / 255.0, b / 255.0
         cmax = max(r_f, g_f, b_f)
         cmin = min(r_f, g_f, b_f)
@@ -560,11 +568,9 @@ class LavaLampEffect(BaseEffect):
             
         h = h / 6.0
         
-        # Base color is the selected color, but VERY dark (Value=30) so additive blending works
         base_r, base_g, base_b = hsv_to_rgb(h, 1.0, 30)
         self.params["base_color"] = (base_r, base_g, base_b)
         
-        # Blobs are the strictly complementary color, fully bright (Value=255)
         comp_h = (h + 0.5) % 1.0
         comp_r, comp_g, comp_b = hsv_to_rgb(comp_h, 1.0, 255)
             
@@ -576,6 +582,25 @@ class LavaLampEffect(BaseEffect):
         self.set_color(blob_color)
         num_blobs = random.randint(2, 5)
         self.blobs = [self.Blob(self.num_leds, blob_color) for _ in range(num_blobs)]
+
+    def add_instance(self):
+        self.blobs.append(self.Blob(self.num_leds, self.params.get("blob_color", (255, 60, 0))))
+
+    def remove_instance(self):
+        if len(self.blobs) > 1:
+            self.blobs.pop()
+
+    def get_state(self):
+        state = self.params.copy()
+        state["num_blobs"] = len(self.blobs)
+        return state
+
+    def set_state(self, state):
+        super().set_state(state)
+        if "num_blobs" in state:
+            color = self.params.get("blob_color", (255, 60, 0))
+            self.blobs = [self.Blob(self.num_leds, color) for _ in range(state["num_blobs"])]
+
 
 class FadingSparkleEffect(BaseEffect):
     def __init__(self, num_leds, color=None, max_brightness=255, num_fading=3, fade_duration=2000):
@@ -630,14 +655,6 @@ class FadingSparkleEffect(BaseEffect):
         for idx in to_remove:
             del self.leds[idx]
         
-        # Check if cycle complete (all fading ins are done)
-        # We only care if the "Fading In" ones are done to start a new cycle?
-        # "When these are lit, another cylcle starts"
-        # So yes, when all current fade-ins reach max, we start new cycle.
-        
-        # But we need to distinguish "Steady" from "Fading In".
-        # Let's say: if we have NO LEDs fading in, we start a new cycle.
-        
         fading_in_active = False
         for state in self.leds.values():
             if state["dir"] > 0 and state["brightness"] < MAX_B:
@@ -651,15 +668,11 @@ class FadingSparkleEffect(BaseEffect):
         num_fading = self.params["num_fading"]
         MAX_B = self.params["max_brightness"]
         
-        # 1. Identify candidates to Fade Out (if not initial)
         if not initial:
-            # Pick 1-num_fading LEDs from current active ones to fade out
-            # Candidates are those currently fully lit (dir > 0 and brightness == MAX_B ideally, or just dir=1)
             candidates = [idx for idx, s in self.leds.items() if s["dir"] > 0]
             count_out = random.randint(1, num_fading)
             count_out = min(count_out, len(candidates))
             
-            # MicroPython random doesn't have sample, so we implement it manually
             chosen_out = []
             temp_candidates = list(candidates)
             for _ in range(count_out):
@@ -669,12 +682,7 @@ class FadingSparkleEffect(BaseEffect):
             for idx in chosen_out:
                 self.leds[idx]["dir"] = -1 # Start fading out
 
-        # 2. Identify candidates to Fade In
-        # Random selection from currently inactive spots
-        # Inefficient to list all empty spots if num_leds is huge, but for 300 it's fine.
         occupied = set(self.leds.keys())
-        # available = [i for i in range(self.num_leds) if i not in occupied] 
-        # Optimization: Just pick random index until not in occupied
         
         count_in = num_fading if initial else random.randint(1, num_fading)
         if initial: count_in = random.randint(5, 10) # "Starts with several"
@@ -706,13 +714,6 @@ class FadingSparkleEffect(BaseEffect):
             
             r, g, b = state["color"]
             
-            # Apply brightness
-            # Since color is 0-255, we assume max brightness 255 scales it down?
-            # Or is max_brightness controlling the alpha channel?
-            # User requirement: "Maximum brightness... configurable"
-            # And "fade from off".
-            
-            # Let's scale RGB by brightness/255
             scale = b_val / 255.0
             
             idx_buf = idx * 3
@@ -724,7 +725,6 @@ class FadingSparkleEffect(BaseEffect):
         self.params["color"] = color
         
     def randomize(self):
-        # Change configuration randomly
         if random.random() > 0.5:
              self.params["color"] = None
         else:
