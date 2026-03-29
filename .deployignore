@@ -1,0 +1,18 @@
+# Editor and VCS metadata
+.git/*
+.git
+.vscode/*
+.vscode
+__pycache__/*
+__pycache__
+src/__pycache__/*
+lib/__pycache__/*
+
+# Local project metadata
+.micropico
+.deployignore
+deploy.ps1
+LICENSE
+
+# Host-side caches
+*.pyc
