@@ -103,8 +103,7 @@ class PIRSensor:
 
 class IRReceiver:
     def __init__(self, pin_num):
-        # We will dynamically import the library to avoid circular deps if any
-        from lib.ir_rx import NEC_IR
+        from .ir_rx import NEC_IR
         self.last_code = None
         self.last_addr = None
         self.active_code = None

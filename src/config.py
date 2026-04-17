@@ -3,14 +3,46 @@ import uasyncio as asyncio
 import time
 
 CONFIG_FILE = "config.json"
+ENV_FILE = ".env"
 
 class ConfigManager:
     def __init__(self):
         self.config = {}
+        self.env = {}
         self._dirty = False
         self._last_change_time = 0
         self.debounce_ms = 5000
         self.load()
+        self.load_env()
+
+    def load_env(self):
+        self.env = {}
+        try:
+            with open(ENV_FILE, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        # Remove quotes if present
+                        v = v.strip().strip("'").strip('"')
+                        self.env[k.strip()] = v
+            print("Environment variables loaded from .env")
+        except OSError:
+            print("No .env file found, using defaults if applicable.")
+
+    def save_env(self):
+        try:
+            with open(ENV_FILE, "w") as f:
+                for key in sorted(self.env):
+                    f.write("{}={}\n".format(key, self.env[key]))
+            print("Environment variables saved to .env")
+        except Exception as e:
+            print("Error saving .env: {}".format(e))
+
+    def set_env(self, key, value, persist=True):
+        self.env[key] = value
+        if persist:
+            self.save_env()
 
     def load(self):
         try:

@@ -1,6 +1,6 @@
 import math
 import random
-from src.utils import lerp, clamp, remap, hsv_to_rgb, kelvin_to_rgb
+from .utils import lerp, clamp, remap, hsv_to_rgb, kelvin_to_rgb
 
 class BaseEffect:
     def __init__(self, num_leds):

@@ -13,6 +13,9 @@ lib/__pycache__/*
 .deployignore
 deploy.ps1
 LICENSE
+.env.example
+.gitignore
+update.py
 
 # Host-side caches
 *.pyc

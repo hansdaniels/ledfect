@@ -1,1 +1,4 @@
 **/__pycache__/
+.env
+src_alt/
+boot_state.json

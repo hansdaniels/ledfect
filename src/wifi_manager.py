@@ -2,6 +2,7 @@ import machine
 import network
 import time
 import uasyncio as asyncio
+import boot_log
 
 
 SETUP_AP_PREFIX = "PicoRoomSetup"
@@ -51,51 +52,79 @@ class WiFiManager:
         password = self.config.get("wifi_password", "")
         if not ssid:
             print("Wi-Fi: no saved credentials.")
+            boot_log.log("wifi no saved credentials")
             return False
+        boot_log.log("wifi connect_saved ssid={}".format(ssid))
         return await self.connect(ssid, password, timeout_ms=timeout_ms)
 
     async def connect(self, ssid, password="", timeout_ms=STA_CONNECT_TIMEOUT_MS):
+        boot_log.log("wifi connect enter")
+        print("Wi-Fi: connect() enter")
+        boot_log.log("wifi ensure_wlan begin")
         self._ensure_wlan()
+        boot_log.log("wifi ensure_wlan done")
         try:
+            boot_log.log("wifi ap.active(False) begin")
             self.ap.active(False)
+            boot_log.log("wifi ap.active(False) done")
+            boot_log.log("wifi sta.active(True) begin")
             self.sta.active(True)
+            boot_log.log("wifi sta.active(True) done")
         except Exception as exc:
             print("Wi-Fi: CYW43 chip failed to start: {}".format(exc))
+            boot_log.log("wifi cyw43 start failed {}".format(exc))
             return False
 
         hostname = self.config.get("wifi_hostname", "pico-led")
         try:
+            boot_log.log("wifi hostname config begin")
             self.sta.config(hostname=hostname)
+            boot_log.log("wifi hostname config done")
         except Exception:
+            boot_log.log("wifi hostname config skipped")
             pass
 
         print("Wi-Fi: connecting to '{}'...".format(ssid))
+        boot_log.log("wifi connecting ssid={}".format(ssid))
         try:
+            boot_log.log("wifi sta.disconnect begin")
             self.sta.disconnect()
+            boot_log.log("wifi sta.disconnect done")
             time.sleep_ms(200)
+            boot_log.log("wifi sta.connect begin")
             self.sta.connect(ssid, password or "")
+            boot_log.log("wifi sta.connect done")
         except Exception as exc:
             print("Wi-Fi: connect() failed: {}".format(exc))
+            boot_log.log("wifi connect call failed {}".format(exc))
             return False
 
         start = time.ticks_ms()
+        last_status = None
         while time.ticks_diff(time.ticks_ms(), start) < timeout_ms:
             try:
                 status = self.sta.status()
             except Exception as exc:
                 print("Wi-Fi: status() error: {}".format(exc))
+                boot_log.log("wifi status error {}".format(exc))
                 return False
+            if status != last_status:
+                last_status = status
+                boot_log.log("wifi status {}".format(status))
             if status == network.STAT_GOT_IP:
                 ip = self.sta.ifconfig()[0]
                 print("Wi-Fi connected: {}".format(ip))
+                boot_log.log("wifi connected ip={}".format(ip))
                 return True
             if status in (network.STAT_WRONG_PASSWORD, network.STAT_NO_AP_FOUND, network.STAT_CONNECT_FAIL):
                 print("Wi-Fi failed with status {}".format(status))
+                boot_log.log("wifi failed status={}".format(status))
                 break
             await asyncio.sleep_ms(STA_POLL_INTERVAL_MS)
 
         self.sta.disconnect()
         print("Wi-Fi: connection timed out.")
+        boot_log.log("wifi timeout")
         return False
 
     def _ap_ssid(self):
@@ -382,7 +411,7 @@ class WiFiManager:
                 await self._send_response(writer, self._render_page(status, ssid))
                 await asyncio.sleep_ms(100)
 
-                if self.connect(ssid, password):
+                if await self.connect(ssid, password):
                     self.config.set("wifi_ssid", ssid)
                     self.config.set("wifi_password", password)
                     self.config.force_save()
