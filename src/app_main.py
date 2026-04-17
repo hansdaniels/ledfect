@@ -143,10 +143,8 @@ class App:
         self.is_off_manual = value
         if self.is_off_manual:
             print("Manual Off")
-            self._trigger_beep(120)
         else:
             print("Manual On")
-            self._trigger_beep(70)
 
     def _set_night_mode_armed(self, value):
         armed = bool(value)
