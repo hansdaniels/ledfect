@@ -90,6 +90,7 @@ class App:
         self.last_motion_time = time.time()
         self.is_off_due_to_timeout = False
         self.is_off_manual = False
+        self.strict_off = False
         self.manual_off_brightness_cache = 255
         self.speed_scaler = self.config.get("speed_scaler", 1.0)
         self.night_mode_armed = self.config.get("night_mode_armed", False)
@@ -139,12 +140,24 @@ class App:
         if self.buzzer.is_enabled():
             asyncio.create_task(self.buzzer.beep(duration_ms=duration_ms))
 
-    def _set_manual_off(self, value):
-        self.is_off_manual = value
-        if self.is_off_manual:
-            print("Manual Off")
+    def _toggle_power(self):
+        if self.maintenance_mode:
+            return
+
+        if getattr(self, 'strict_off', False):
+            self.strict_off = False
+            self.is_off_manual = False
+            print("Manual On (from strict off)")
+        elif getattr(self, 'night_mode_active', False):
+            self.strict_off = True
+            self.is_off_manual = True
+            print("Strict Off (overriding night mode)")
         else:
-            print("Manual On")
+            self.is_off_manual = not getattr(self, 'is_off_manual', False)
+            if self.is_off_manual:
+                print("Manual Off (Night mode stands by)")
+            else:
+                print("Manual On")
 
     def _set_night_mode_armed(self, value):
         armed = bool(value)
@@ -185,6 +198,10 @@ class App:
     def _should_output_light(self):
         if self.maintenance_mode:
             return False
+        if getattr(self, 'strict_off', False):
+            return False
+        if getattr(self, 'night_mode_active', False):
+            return True
         if self.is_off_due_to_timeout or self.is_off_manual:
             return False
         return True
@@ -432,7 +449,7 @@ class App:
                     self._save_effect_state()
             elif evt_c == 2:
                 print("Button Center Long: Toggle On/Off")
-                self._set_manual_off(not self.is_off_manual)
+                self._toggle_power()
 
             code = self.ir.get_code()
             if code is not None:
@@ -491,7 +508,7 @@ class App:
                     else:
                         print(f"Current effect does not support direct color changes: {self.current_effect_name}")
                 elif code in ir_mapping["STOP/MODE"]:
-                    self._set_manual_off(not self.is_off_manual)
+                    self._toggle_power()
                 elif code in ir_mapping["SETUP"]:
                     self.pir_timeout_enabled = not self.pir_timeout_enabled
                     self.config.set("pir_timeout_enabled", self.pir_timeout_enabled)
