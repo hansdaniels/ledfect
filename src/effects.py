@@ -118,46 +118,63 @@ class LarsonScannerEffect(BaseEffect):
         dt = (time_ms - self.last_time) / 1000.0
         self.last_time = time_ms
         
-        limit = self.num_leds - 1
+        limit_fp = (self.num_leds - 1) * 256
         
         for scanner in self.scanners:
             speed = scanner.get("speed", 0.2)
-            step = dt * (speed * 100.0)
-            scanner["pos"] += step * scanner["direction"]
-            if scanner["pos"] >= limit:
-                scanner["pos"] = limit
+            step_fp = int(dt * speed * 100.0 * 256)
+            
+            # Using fixed-point positions internally to prevent drift and allocations where possible
+            if "pos_fp" not in scanner:
+                scanner["pos_fp"] = int(scanner["pos"] * 256)
+                
+            scanner["pos_fp"] += step_fp * scanner["direction"]
+            
+            if scanner["pos_fp"] >= limit_fp:
+                scanner["pos_fp"] = limit_fp
                 scanner["direction"] = -1
-            elif scanner["pos"] <= 0:
-                scanner["pos"] = 0
+            elif scanner["pos_fp"] <= 0:
+                scanner["pos_fp"] = 0
                 scanner["direction"] = 1
+                
+            scanner["pos"] = scanner["pos_fp"] / 256.0 # Kept for get_state backward compatibility
 
     def render(self, buffer):
+        num_leds = self.num_leds
         for scanner in self.scanners:
             r, g, b = scanner["color"]
-            tail = scanner["tail_length"]
-            center = scanner["pos"]
-            start = max(0, int(center - tail - 2))
-            end = min(self.num_leds, int(center + tail + 2))
+            tail_fp = int(scanner["tail_length"] * 256)
+            center_fp = scanner.get("pos_fp", int(scanner["pos"] * 256))
+            
+            # Padding for start/end
+            start = ((center_fp - tail_fp) >> 8) - 2
+            if start < 0: start = 0
+            end = ((center_fp + tail_fp) >> 8) + 3
+            if end > num_leds: end = num_leds
+            
+            if tail_fp <= 0: continue
             
             for i in range(start, end):
-                dist = abs(i - center)
-                brightness = 0
-                if dist < 1.0:
-                    brightness = 255 
-                elif dist < tail:
-                    brightness = int(255 * (1 - (dist / tail)))
-                else:
-                    brightness = 0
+                # Fixed-point distance to avoid float allocation (which triggers GC and causes stuttering)
+                dist_fp = center_fp - (i << 8)
+                if dist_fp < 0: dist_fp = -dist_fp
                 
-                if brightness > 0:
-                    idx = i * 3
-                    factor = brightness / 255.0
-                    nr = buffer[idx] + int(r * factor)
-                    ng = buffer[idx+1] + int(g * factor)
-                    nb = buffer[idx+2] + int(b * factor)
-                    buffer[idx] = min(255, nr)
-                    buffer[idx+1] = min(255, ng)
-                    buffer[idx+2] = min(255, nb)
+                if dist_fp < 256:
+                    factor = 256
+                elif dist_fp < tail_fp:
+                    factor = 256 - ((dist_fp << 8) // tail_fp)
+                else:
+                    continue
+                
+                idx = i * 3
+                nr = buffer[idx] + ((r * factor) >> 8)
+                buffer[idx] = nr if nr <= 255 else 255
+                
+                ng = buffer[idx+1] + ((g * factor) >> 8)
+                buffer[idx+1] = ng if ng <= 255 else 255
+                
+                nb = buffer[idx+2] + ((b * factor) >> 8)
+                buffer[idx+2] = nb if nb <= 255 else 255
 
     def set_color(self, color):
         if self.scanners:
@@ -217,32 +234,44 @@ class WanderingSpotsEffect(BaseEffect):
             spot.update(time_delta)
 
     def render(self, buffer):
+        num_leds = self.num_leds
         for spot in self.spots:
-            start = int(spot.pos - spot.width * 2)
-            end = int(spot.pos + spot.width * 2)
-            start = max(0, start)
-            end = min(self.num_leds, end)
+            width_fp = int(spot.width * 256)
+            pos_fp = int(spot.pos * 256)
+            
+            # The original code only rendered up to spot.width despite start/end having * 2
+            start = ((pos_fp - width_fp) >> 8) - 1
+            if start < 0: start = 0
+            end = ((pos_fp + width_fp) >> 8) + 2
+            if end > num_leds: end = num_leds
+            
+            if width_fp <= 0: continue
+            
             sr, sg, sb = spot.color
             
             for i in range(start, end):
-                dist = abs(i - spot.pos)
-                if dist > spot.width: continue
-                factor = math.exp(-(dist*dist) / (2 * (spot.width/2)**2))
-                brightness = int(255 * factor)
-                if brightness <= 0: continue
+                dist_fp = pos_fp - (i << 8)
+                if dist_fp < 0: dist_fp = -dist_fp
+                
+                if dist_fp >= width_fp: continue
+                
+                # Integer approximation of math.exp bell curve: (1 - (dist/width)^2)^2
+                x_fp = (dist_fp << 8) // width_fp
+                xsq_fp = (x_fp * x_fp) >> 8
+                inv_xsq_fp = 256 - xsq_fp
+                factor = (inv_xsq_fp * inv_xsq_fp) >> 8
+                
+                if factor <= 0: continue
 
                 idx = i * 3
-                cr = buffer[idx]
-                cg = buffer[idx+1]
-                cb = buffer[idx+2]
+                nr = buffer[idx] + ((sr * factor) >> 8)
+                buffer[idx] = nr if nr <= 255 else 255
                 
-                nr = cr + int(sr * factor)
-                ng = cg + int(sg * factor)
-                nb = cb + int(sb * factor)
+                ng = buffer[idx+1] + ((sg * factor) >> 8)
+                buffer[idx+1] = ng if ng <= 255 else 255
                 
-                buffer[idx] = min(255, nr)
-                buffer[idx+1] = min(255, ng)
-                buffer[idx+2] = min(255, nb)
+                nb = buffer[idx+2] + ((sb * factor) >> 8)
+                buffer[idx+2] = nb if nb <= 255 else 255
 
     def set_color(self, color):
         if self.spots:
@@ -315,10 +344,9 @@ class SparkleEffect(BaseEffect):
             if bright > 0:
                 r, g, b = self.pixel_colors[i]
                 idx = i * 3
-                factor = bright / 255.0
-                buffer[idx] = int(r * factor)
-                buffer[idx+1] = int(g * factor)
-                buffer[idx+2] = int(b * factor)
+                buffer[idx] = (r * bright) >> 8
+                buffer[idx+1] = (g * bright) >> 8
+                buffer[idx+2] = (b * bright) >> 8
 
     def set_color(self, color):
         self.params["color"] = color
@@ -532,23 +560,44 @@ class LavaLampEffect(BaseEffect):
             buffer[idx+2] = bb
 
         for blob in self.blobs:
-            start = int(blob.pos - blob.size * 2)
-            end = int(blob.pos + blob.size * 2)
-            start = max(0, start)
-            end = min(self.num_leds, end)
+            size_fp = int(blob.size * 256)
+            pos_fp = int(blob.pos * 256)
+            radius_fp = size_fp * 2 # original code rendered up to 2 * size
+            
+            start = ((pos_fp - radius_fp) >> 8) - 1
+            if start < 0: start = 0
+            end = ((pos_fp + radius_fp) >> 8) + 2
+            if end > self.num_leds: end = self.num_leds
+            
+            if radius_fp <= 0: continue
+            
+            br, bg, bb = blob.color
+            
             for i in range(start, end):
-                dist = abs(i - blob.pos)
-                if dist > blob.size * 2: continue
-                val = math.exp(-(dist*dist)/(2*(blob.size/2.2)**2)) 
-                if val < 0.05: continue
+                dist_fp = pos_fp - (i << 8)
+                if dist_fp < 0: dist_fp = -dist_fp
+                
+                if dist_fp >= radius_fp: continue
+                
+                # Integer approximation of LavaLamp exponential falloff...
+                # Using (1 - (dist/radius)^2)^4 for a tighter bell matching original exp falloff
+                x_fp = (dist_fp << 8) // radius_fp
+                xsq_fp = (x_fp * x_fp) >> 8
+                inv_xsq_fp = 256 - xsq_fp
+                f2 = (inv_xsq_fp * inv_xsq_fp) >> 8
+                factor = (f2 * f2) >> 8
+                
+                if factor < 13: continue # 13/256 roughly equals 0.05 cutoff from original
                 
                 idx = i * 3
-                r = buffer[idx] + int(blob.color[0] * val)
-                g = buffer[idx+1] + int(blob.color[1] * val)
-                b = buffer[idx+2] + int(blob.color[2] * val)
-                buffer[idx] = min(255, r)
-                buffer[idx+1] = min(255, g)
-                buffer[idx+2] = min(255, b)
+                nr = buffer[idx] + ((br * factor) >> 8)
+                buffer[idx] = nr if nr <= 255 else 255
+                
+                ng = buffer[idx+1] + ((bg * factor) >> 8)
+                buffer[idx+1] = ng if ng <= 255 else 255
+                
+                nb = buffer[idx+2] + ((bb * factor) >> 8)
+                buffer[idx+2] = nb if nb <= 255 else 255
 
     def set_color(self, color):
         r, g, b = color
