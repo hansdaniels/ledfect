@@ -13,11 +13,18 @@ class StripController:
         # buffer is bytearray of size num_leds * 3 (RGB)
         # NeoPixel expects (r, g, b)
         n = self.num_leds
+        # Pre-allocate list to avoid tuple creation (memory allocation) in the loop.
+        # Allocating memory rapidly in the second thread (core 1) causes 
+        # MicroPython's garbage collector to deadlock and freeze the Pico!
+        val = [0, 0, 0]
         for i in range(n):
             idx = i * 3
             # WS2812/WS2815 are usually GRB.
             # Convert RGB buffer -> GRB for the strip
-            self.np[i] = (buffer[idx+1], buffer[idx], buffer[idx+2])
+            val[0] = buffer[idx+1]
+            val[1] = buffer[idx]
+            val[2] = buffer[idx+2]
+            self.np[i] = val
         self.np.write()
 
 class Button:
