@@ -225,6 +225,18 @@ class WebServer:
                     status = "400 Bad Request"
                     response_body = "Missing body"
             
+            elif method == "POST" and path == "/api/action":
+                if content_length > 0:
+                    body = await reader.read(content_length)
+                    data = ujson.loads(body)
+                    if "action" in data and hasattr(self.app, "execute_action"):
+                        self.app.execute_action(data["action"])
+                    content_type = "application/json"
+                    response_body = '{"status": "ok"}'
+                else:
+                    status = "400 Bad Request"
+                    response_body = "Missing body"
+            
             elif method == "POST" and path == "/api/debug/enable":
                 secret = self.app.config.env.get("UPDATE_SECRET", "default_secret")
                 signature = headers.get('x-signature', '')
@@ -435,6 +447,9 @@ class WebServer:
         table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
         th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
         th { color: var(--accent-2); }
+        tr.clickable { cursor: pointer; transition: background 0.2s; }
+        tr.clickable:hover { background: rgba(26, 141, 112, 0.1); }
+        tr.clickable:active { background: rgba(26, 141, 112, 0.2); }
         .key { font-weight: bold; white-space: nowrap; }
         .swatch {
             display: inline-block;
@@ -508,27 +523,27 @@ class WebServer:
             <p>Die Tabelle unten zeigt die aktuell im Pico-Code implementierten Tastenfunktionen.</p>
             <table>
                 <tr><th>Taste</th><th>Aktion</th></tr>
-                <tr><td class="key">1</td><td><span class="swatch" style="background:#ff0000;"></span>Rot.</td></tr>
-                <tr><td class="key">2</td><td><span class="swatch" style="background:#ff8000;"></span>Orange.</td></tr>
-                <tr><td class="key">3</td><td><span class="swatch" style="background:#ffd400;"></span>Gelb.</td></tr>
-                <tr><td class="key">4</td><td><span class="swatch" style="background:#00c853;"></span>Grün.</td></tr>
-                <tr><td class="key">5</td><td><span class="swatch" style="background:#00d5ff;"></span>Cyan.</td></tr>
-                <tr><td class="key">6</td><td><span class="swatch" style="background:#0057ff;"></span>Blau.</td></tr>
-                <tr><td class="key">7</td><td><span class="swatch" style="background:#ff00c8;"></span>Magenta.</td></tr>
-                <tr><td class="key">8</td><td><span class="swatch" style="background:#8040ff;"></span>Violett.</td></tr>
-                <tr><td class="key">9</td><td><span class="swatch" style="background:#ffffff;"></span>Weiß.</td></tr>
-                <tr><td class="key">STOP/MODE</td><td>LEDs ein- oder ausschalten.</td></tr>
-                <tr><td class="key">SETUP</td><td>Bewegungsmelder-Timeout aktivieren oder deaktivieren.</td></tr>
-                <tr><td class="key">ENTER/SAVE</td><td>Nachtmodus aktivieren oder deaktivieren.</td></tr>
-                <tr><td class="key">UP</td><td>Nächster Effekt.</td></tr>
-                <tr><td class="key">DOWN</td><td>Vorheriger Effekt.</td></tr>
-                <tr><td class="key">RIGHT</td><td>Animationsgeschwindigkeit erhöhen.</td></tr>
-                <tr><td class="key">LEFT</td><td>Animationsgeschwindigkeit verringern.</td></tr>
-                <tr><td class="key">PLAY/PAUSE</td><td>Aktuellen Effekt pausieren oder fortsetzen.</td></tr>
-                <tr><td class="key">VOL+</td><td>Helligkeit in festen Schritten erhöhen.</td></tr>
-                <tr><td class="key">VOL-</td><td>Helligkeit in festen Schritten verringern.</td></tr>
-                <tr><td class="key">0/10+</td><td>Eine Effektinstanz hinzufügen oder einen Wert für unterstützte Effekte erhöhen.</td></tr>
-                <tr><td class="key">BACK</td><td>Eine Effektinstanz entfernen oder einen Wert für unterstützte Effekte verringern.</td></tr>
+                <tr class="clickable" onclick="triggerAction('1')"><td class="key">1</td><td><span class="swatch" style="background:#ff0000;"></span>Rot.</td></tr>
+                <tr class="clickable" onclick="triggerAction('2')"><td class="key">2</td><td><span class="swatch" style="background:#ff8000;"></span>Orange.</td></tr>
+                <tr class="clickable" onclick="triggerAction('3')"><td class="key">3</td><td><span class="swatch" style="background:#ffd400;"></span>Gelb.</td></tr>
+                <tr class="clickable" onclick="triggerAction('4')"><td class="key">4</td><td><span class="swatch" style="background:#00c853;"></span>Grün.</td></tr>
+                <tr class="clickable" onclick="triggerAction('5')"><td class="key">5</td><td><span class="swatch" style="background:#00d5ff;"></span>Cyan.</td></tr>
+                <tr class="clickable" onclick="triggerAction('6')"><td class="key">6</td><td><span class="swatch" style="background:#0057ff;"></span>Blau.</td></tr>
+                <tr class="clickable" onclick="triggerAction('7')"><td class="key">7</td><td><span class="swatch" style="background:#ff00c8;"></span>Magenta.</td></tr>
+                <tr class="clickable" onclick="triggerAction('8')"><td class="key">8</td><td><span class="swatch" style="background:#8040ff;"></span>Violett.</td></tr>
+                <tr class="clickable" onclick="triggerAction('9')"><td class="key">9</td><td><span class="swatch" style="background:#ffffff;"></span>Weiß.</td></tr>
+                <tr class="clickable" onclick="triggerAction('STOP/MODE')"><td class="key">STOP/MODE</td><td>LEDs ein- oder ausschalten.</td></tr>
+                <tr class="clickable" onclick="triggerAction('SETUP')"><td class="key">SETUP</td><td>Bewegungsmelder-Timeout aktivieren oder deaktivieren.</td></tr>
+                <tr class="clickable" onclick="triggerAction('ENTER/SAVE')"><td class="key">ENTER/SAVE</td><td>Nachtmodus aktivieren oder deaktivieren.</td></tr>
+                <tr class="clickable" onclick="triggerAction('UP')"><td class="key">UP</td><td>Nächster Effekt.</td></tr>
+                <tr class="clickable" onclick="triggerAction('DOWN')"><td class="key">DOWN</td><td>Vorheriger Effekt.</td></tr>
+                <tr class="clickable" onclick="triggerAction('RIGHT')"><td class="key">RIGHT</td><td>Animationsgeschwindigkeit erhöhen.</td></tr>
+                <tr class="clickable" onclick="triggerAction('LEFT')"><td class="key">LEFT</td><td>Animationsgeschwindigkeit verringern.</td></tr>
+                <tr class="clickable" onclick="triggerAction('PLAY/PAUSE')"><td class="key">PLAY/PAUSE</td><td>Aktuellen Effekt pausieren oder fortsetzen.</td></tr>
+                <tr class="clickable" onclick="triggerAction('VOL+')"><td class="key">VOL+</td><td>Helligkeit in festen Schritten erhöhen.</td></tr>
+                <tr class="clickable" onclick="triggerAction('VOL-')"><td class="key">VOL-</td><td>Helligkeit in festen Schritten verringern.</td></tr>
+                <tr class="clickable" onclick="triggerAction('0/10+')"><td class="key">0/10+</td><td>Eine Effektinstanz hinzufügen oder einen Wert für unterstützte Effekte erhöhen.</td></tr>
+                <tr class="clickable" onclick="triggerAction('BACK')"><td class="key">BACK</td><td>Eine Effektinstanz entfernen oder einen Wert für unterstützte Effekte verringern.</td></tr>
             </table>
         </div>
         <div class="mini-tools">
@@ -574,6 +589,13 @@ class WebServer:
             await fetch('/api/config', {
                 method: 'POST',
                 body: JSON.stringify({debug_boot_log: enabled})
+            });
+            setTimeout(updateStatus, 300);
+        }
+        async function triggerAction(action) {
+            await fetch('/api/action', {
+                method: 'POST',
+                body: JSON.stringify({action: action})
             });
             setTimeout(updateStatus, 300);
         }

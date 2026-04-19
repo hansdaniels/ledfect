@@ -454,7 +454,6 @@ class App:
             code = self.ir.get_code()
             if code is not None:
                 print(f"IR Remote - Received Code: {code} (Hex: 0x{code:02X})")
-                self.reset_activity()
 
                 def get_toggle_code(base_cmd):
                     packet = (0x80 << 24) | (0x7F << 16) | (base_cmd << 8) | ((~base_cmd) & 0xFF)
@@ -494,92 +493,105 @@ class App:
                     "9": build_map(0xA9),
                 }
 
-                color_key = None
-                for key in IR_COLOR_PRESETS:
-                    if code in ir_mapping[key]:
-                        color_key = key
+                action_found = None
+                for key, codes in ir_mapping.items():
+                    if code in codes:
+                        action_found = key
                         break
-
-                if color_key is not None:
-                    color = IR_COLOR_PRESETS[color_key]
-                    if self._apply_color_to_current_effect(color):
-                        self._save_effect_state()
-                        print(f"Applied IR color {color_key}: {color}")
-                    else:
-                        print(f"Current effect does not support direct color changes: {self.current_effect_name}")
-                elif code in ir_mapping["STOP/MODE"]:
-                    self._toggle_power()
-                elif code in ir_mapping["SETUP"]:
-                    self.pir_timeout_enabled = not self.pir_timeout_enabled
-                    self.config.set("pir_timeout_enabled", self.pir_timeout_enabled)
-                    if self.pir_timeout_enabled:
-                        self.reset_activity()
-                        print("PIR timeout enabled (5 min)")
-                    else:
-                        self.is_off_due_to_timeout = False
-                        print("PIR timeout disabled")
-                elif code in ir_mapping["ENTER/SAVE"]:
-                    self._set_night_mode_armed(not self.night_mode_armed)
-                elif code in ir_mapping["UP"]:
-                    try:
-                        idx = effects.index(self.current_effect_name)
-                        next_idx = (idx + 1) % len(effects)
-                        print(f"Switching Effect via UP to: {effects[next_idx]}")
-                        self._load_effect(effects[next_idx])
-                    except ValueError:
-                        self._load_effect(effects[0])
-                elif code in ir_mapping["DOWN"]:
-                    try:
-                        idx = effects.index(self.current_effect_name)
-                        next_idx = (idx - 1) % len(effects)
-                        print(f"Switching Effect via DOWN to: {effects[next_idx]}")
-                        self._load_effect(effects[next_idx])
-                    except ValueError:
-                        self._load_effect(effects[0])
-                elif code in ir_mapping["RIGHT"]:
-                    self.speed_scaler = min(5.0, self.speed_scaler + 0.25)
-                    self.config.set("speed_scaler", self.speed_scaler)
-                    print(f"Global Speed Increased: {self.speed_scaler:.2f}x")
-                elif code in ir_mapping["LEFT"]:
-                    self.speed_scaler = max(0.1, self.speed_scaler - 0.25)
-                    self.config.set("speed_scaler", self.speed_scaler)
-                    print(f"Global Speed Decreased: {self.speed_scaler:.2f}x")
-                elif code in ir_mapping["PLAY/PAUSE"]:
-                    self.is_paused = not getattr(self, "is_paused", False)
-                    print(f"Effect Paused: {self.is_paused}")
-                elif code in ir_mapping["VOL+"]:
-                    next_steps = [b for b in BRIGHTNESS_STEPS if b > self.brightness]
-                    self.brightness = next_steps[0] if next_steps else 255
-                    self.config.set("brightness", self.brightness)
-                    print(f"Brightness UP: {self.brightness}/255")
-                elif code in ir_mapping["VOL-"]:
-                    prev_steps = [b for b in BRIGHTNESS_STEPS if b < self.brightness]
-                    self.brightness = prev_steps[-1] if prev_steps else 0
-                    self.config.set("brightness", self.brightness)
-                    print(f"Brightness DOWN: {self.brightness}/255")
-                elif code in ir_mapping["0_10+"]:
-                    if hasattr(self.current_effect, "add_instance"):
-                        self.current_effect.add_instance()
-                        self._save_effect_state()
-                        print("Added effect instance / Increased value")
-                elif code in ir_mapping["BACK"]:
-                    if hasattr(self.current_effect, "remove_instance"):
-                        self.current_effect.remove_instance()
-                        self._save_effect_state()
-                        print("Removed effect instance / Decreased value")
-                elif code in ir_mapping["BACK_LONG"]:
-                    print("Long press BACK detected! Resetting current effect.")
-                    self._trigger_beep(150)
-                    states = self.config.get("effect_states", {})
-                    if self.current_effect_name in states:
-                        del states[self.current_effect_name]
-                        self.config.config["effect_states"] = states
-                        self.config._dirty = True
-                        self.config._last_change_time = time.ticks_ms()
-                        self.config.save()
-                    self._load_effect(self.current_effect_name)
+                
+                if action_found:
+                    self.execute_action(action_found)
 
             await asyncio.sleep_ms(50)
+
+    def execute_action(self, action_key):
+        self.reset_activity()
+        effects = [
+            "SolidColor", "LarsonScanner", "WanderingSpots",
+            "Sparkle", "Rainbow", "Pulse", "LavaLamp", "FadingSparkle"
+        ]
+
+        # Map 0_10+ from code to HTML notation 0/10+ if needed, or unify
+        if action_key == "0_10+":
+            action_key = "0/10+"
+
+        if action_key in IR_COLOR_PRESETS:
+            color = IR_COLOR_PRESETS[action_key]
+            if self._apply_color_to_current_effect(color):
+                self._save_effect_state()
+                print(f"Applied IR color {action_key}: {color}")
+            else:
+                print(f"Current effect does not support direct color changes: {self.current_effect_name}")
+        elif action_key == "STOP/MODE":
+            self._toggle_power()
+        elif action_key == "SETUP":
+            self.pir_timeout_enabled = not self.pir_timeout_enabled
+            self.config.set("pir_timeout_enabled", self.pir_timeout_enabled)
+            if self.pir_timeout_enabled:
+                print("PIR timeout enabled (5 min)")
+            else:
+                self.is_off_due_to_timeout = False
+                print("PIR timeout disabled")
+        elif action_key == "ENTER/SAVE":
+            self._set_night_mode_armed(not self.night_mode_armed)
+        elif action_key == "UP":
+            try:
+                idx = effects.index(self.current_effect_name)
+                next_idx = (idx + 1) % len(effects)
+                print(f"Switching Effect via UP to: {effects[next_idx]}")
+                self._load_effect(effects[next_idx])
+            except ValueError:
+                self._load_effect(effects[0])
+        elif action_key == "DOWN":
+            try:
+                idx = effects.index(self.current_effect_name)
+                next_idx = (idx - 1) % len(effects)
+                print(f"Switching Effect via DOWN to: {effects[next_idx]}")
+                self._load_effect(effects[next_idx])
+            except ValueError:
+                self._load_effect(effects[0])
+        elif action_key == "RIGHT":
+            self.speed_scaler = min(5.0, self.speed_scaler + 0.25)
+            self.config.set("speed_scaler", self.speed_scaler)
+            print(f"Global Speed Increased: {self.speed_scaler:.2f}x")
+        elif action_key == "LEFT":
+            self.speed_scaler = max(0.1, self.speed_scaler - 0.25)
+            self.config.set("speed_scaler", self.speed_scaler)
+            print(f"Global Speed Decreased: {self.speed_scaler:.2f}x")
+        elif action_key == "PLAY/PAUSE":
+            self.is_paused = not getattr(self, "is_paused", False)
+            print(f"Effect Paused: {self.is_paused}")
+        elif action_key == "VOL+":
+            next_steps = [b for b in BRIGHTNESS_STEPS if b > self.brightness]
+            self.brightness = next_steps[0] if next_steps else 255
+            self.config.set("brightness", self.brightness)
+            print(f"Brightness UP: {self.brightness}/255")
+        elif action_key == "VOL-":
+            prev_steps = [b for b in BRIGHTNESS_STEPS if b < self.brightness]
+            self.brightness = prev_steps[-1] if prev_steps else 0
+            self.config.set("brightness", self.brightness)
+            print(f"Brightness DOWN: {self.brightness}/255")
+        elif action_key == "0/10+":
+            if hasattr(self.current_effect, "add_instance"):
+                self.current_effect.add_instance()
+                self._save_effect_state()
+                print("Added effect instance / Increased value")
+        elif action_key == "BACK":
+            if hasattr(self.current_effect, "remove_instance"):
+                self.current_effect.remove_instance()
+                self._save_effect_state()
+                print("Removed effect instance / Decreased value")
+        elif action_key == "BACK_LONG":
+            print("Long press BACK detected! Resetting current effect.")
+            self._trigger_beep(150)
+            states = self.config.get("effect_states", {})
+            if self.current_effect_name in states:
+                del states[self.current_effect_name]
+                self.config.config["effect_states"] = states
+                self.config._dirty = True
+                self.config._last_change_time = time.ticks_ms()
+                self.config.save()
+            self._load_effect(self.current_effect_name)
 
     async def pir_loop(self):
         while True:
