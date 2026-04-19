@@ -205,7 +205,7 @@ class WebServer:
             # Handle requests
             response_body = ""
             status = "200 OK"
-            content_type = "text/html"
+            content_type = "text/html; charset=utf-8"
 
             if method == "GET" and path == "/":
                 response_body = self._get_html()
@@ -408,7 +408,8 @@ class WebServer:
         return """<!DOCTYPE html>
 <html>
 <head>
-    <title>Pico LED Control</title>
+    <meta charset="UTF-8">
+    <title>Pico LED-Steuerung</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         :root {
@@ -470,10 +471,10 @@ class WebServer:
 </head>
 <body>
     <main>
-        <h1>LED Controller</h1>
+        <h1>LED-Steuerung</h1>
         <div class="card">
-            <h3>Current Status</h3>
-            <pre id="status">Loading...</pre>
+            <h3>Aktueller Status</h3>
+            <pre id="status">Lädt...</pre>
         </div>
         <div class="card">
             <h3>Software</h3>
@@ -483,54 +484,54 @@ class WebServer:
                 <tr><th>Build</th><td id="sw-build">-</td></tr>
                 <tr><th>Commit</th><td id="sw-commit">-</td></tr>
                 <tr><th>Hash</th><td id="sw-hash">-</td></tr>
-                <tr><th>Pending</th><td id="sw-pending">-</td></tr>
+                <tr><th>Ausstehend</th><td id="sw-pending">-</td></tr>
             </table>
         </div>
         <div class="card">
-            <h3>Effects</h3>
+            <h3>Effekte</h3>
             <div class="grid">
-                <button onclick="setEffect('SolidColor')">Solid Color</button>
-                <button onclick="setEffect('LarsonScanner')">Larson Scanner</button>
-                <button onclick="setEffect('Rainbow')">Rainbow</button>
-                <button onclick="setEffect('WanderingSpots')">Wandering Spots</button>
-                <button onclick="setEffect('LavaLamp')">Lava Lamp</button>
-                <button onclick="setEffect('Sparkle')">Sparkle</button>
-                <button onclick="setEffect('Pulse')">Pulse</button>
-                <button onclick="setEffect('FadingSparkle')">Fading Sparkle</button>
+                <button onclick="setEffect('SolidColor')">Einfarbig</button>
+                <button onclick="setEffect('LarsonScanner')">Larson-Scanner</button>
+                <button onclick="setEffect('Rainbow')">Regenbogen</button>
+                <button onclick="setEffect('WanderingSpots')">Wandernde Punkte</button>
+                <button onclick="setEffect('LavaLamp')">Lavalampe</button>
+                <button onclick="setEffect('Sparkle')">Funkeln</button>
+                <button onclick="setEffect('Pulse')">Pulsieren</button>
+                <button onclick="setEffect('FadingSparkle')">Verblassendes Funkeln</button>
             </div>
         </div>
         <div class="card">
-            <h3>IR Remote Help</h3>
-            <p>The page below mirrors the button handling currently implemented in the Pico code.</p>
+            <h3>IR-Fernbedienung Hilfe</h3>
+            <p>Die Tabelle unten zeigt die aktuell im Pico-Code implementierten Tastenfunktionen.</p>
             <table>
-                <tr><th>Button</th><th>Action</th></tr>
-                <tr><td class="key">1</td><td><span class="swatch" style="background:#ff0000;"></span>Red.</td></tr>
+                <tr><th>Taste</th><th>Aktion</th></tr>
+                <tr><td class="key">1</td><td><span class="swatch" style="background:#ff0000;"></span>Rot.</td></tr>
                 <tr><td class="key">2</td><td><span class="swatch" style="background:#ff8000;"></span>Orange.</td></tr>
-                <tr><td class="key">3</td><td><span class="swatch" style="background:#ffd400;"></span>Yellow.</td></tr>
-                <tr><td class="key">4</td><td><span class="swatch" style="background:#00c853;"></span>Green.</td></tr>
+                <tr><td class="key">3</td><td><span class="swatch" style="background:#ffd400;"></span>Gelb.</td></tr>
+                <tr><td class="key">4</td><td><span class="swatch" style="background:#00c853;"></span>Grün.</td></tr>
                 <tr><td class="key">5</td><td><span class="swatch" style="background:#00d5ff;"></span>Cyan.</td></tr>
-                <tr><td class="key">6</td><td><span class="swatch" style="background:#0057ff;"></span>Blue.</td></tr>
+                <tr><td class="key">6</td><td><span class="swatch" style="background:#0057ff;"></span>Blau.</td></tr>
                 <tr><td class="key">7</td><td><span class="swatch" style="background:#ff00c8;"></span>Magenta.</td></tr>
-                <tr><td class="key">8</td><td><span class="swatch" style="background:#8040ff;"></span>Violet.</td></tr>
-                <tr><td class="key">9</td><td><span class="swatch" style="background:#ffffff;"></span>White.</td></tr>
-                <tr><td class="key">STOP/MODE</td><td>Toggle LEDs on or off.</td></tr>
-                <tr><td class="key">SETUP</td><td>Enable or disable PIR timeout.</td></tr>
-                <tr><td class="key">ENTER/SAVE</td><td>Arm or disarm night mode.</td></tr>
-                <tr><td class="key">UP</td><td>Next effect.</td></tr>
-                <tr><td class="key">DOWN</td><td>Previous effect.</td></tr>
-                <tr><td class="key">RIGHT</td><td>Increase animation speed.</td></tr>
-                <tr><td class="key">LEFT</td><td>Decrease animation speed.</td></tr>
-                <tr><td class="key">PLAY/PAUSE</td><td>Pause or resume the current effect.</td></tr>
-                <tr><td class="key">VOL+</td><td>Increase brightness in fixed steps.</td></tr>
-                <tr><td class="key">VOL-</td><td>Decrease brightness in fixed steps.</td></tr>
-                <tr><td class="key">0/10+</td><td>Add an effect instance or increase a value for effects that support it.</td></tr>
-                <tr><td class="key">BACK</td><td>Remove an effect instance or decrease a value for effects that support it.</td></tr>
+                <tr><td class="key">8</td><td><span class="swatch" style="background:#8040ff;"></span>Violett.</td></tr>
+                <tr><td class="key">9</td><td><span class="swatch" style="background:#ffffff;"></span>Weiß.</td></tr>
+                <tr><td class="key">STOP/MODE</td><td>LEDs ein- oder ausschalten.</td></tr>
+                <tr><td class="key">SETUP</td><td>Bewegungsmelder-Timeout aktivieren oder deaktivieren.</td></tr>
+                <tr><td class="key">ENTER/SAVE</td><td>Nachtmodus aktivieren oder deaktivieren.</td></tr>
+                <tr><td class="key">UP</td><td>Nächster Effekt.</td></tr>
+                <tr><td class="key">DOWN</td><td>Vorheriger Effekt.</td></tr>
+                <tr><td class="key">RIGHT</td><td>Animationsgeschwindigkeit erhöhen.</td></tr>
+                <tr><td class="key">LEFT</td><td>Animationsgeschwindigkeit verringern.</td></tr>
+                <tr><td class="key">PLAY/PAUSE</td><td>Aktuellen Effekt pausieren oder fortsetzen.</td></tr>
+                <tr><td class="key">VOL+</td><td>Helligkeit in festen Schritten erhöhen.</td></tr>
+                <tr><td class="key">VOL-</td><td>Helligkeit in festen Schritten verringern.</td></tr>
+                <tr><td class="key">0/10+</td><td>Eine Effektinstanz hinzufügen oder einen Wert für unterstützte Effekte erhöhen.</td></tr>
+                <tr><td class="key">BACK</td><td>Eine Effektinstanz entfernen oder einen Wert für unterstützte Effekte verringern.</td></tr>
             </table>
         </div>
         <div class="mini-tools">
-            <label title="Write persistent boot diagnostics to boot.log">
+            <label title="Dauerhafte Boot-Diagnose in boot.log schreiben">
                 <input id="boot-log-toggle" type="checkbox" onchange="setBootLog(this.checked)">
-                <span>boot log</span>
+                <span>Boot-Protokoll</span>
             </label>
         </div>
     </main>
