@@ -425,7 +425,10 @@ class WebServer:
         main { max-width: 880px; margin: 0 auto; }
         .card { background: var(--card); padding: 16px; margin-bottom: 14px; border-radius: 14px; border: 2px solid var(--line); box-shadow: 0 10px 24px rgba(57, 43, 23, 0.08); }
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
-        button { padding: 12px; width: 100%; margin: 0; background: var(--accent); color: white; border: none; border-radius: 999px; font-weight: bold; }
+        button { padding: 12px; width: 100%; margin: 0; background: var(--accent); color: white; border: none; border-radius: 999px; font-weight: bold; cursor: pointer; transition: background 0.2s, transform 0.1s; }
+        button:hover { background: #14735b; }
+        button:active { transform: scale(0.97); }
+        button.active-effect { background: var(--accent-2); box-shadow: 0 0 0 3px rgba(217, 108, 47, 0.3); }
         pre { white-space: pre-wrap; margin: 0; font-size: 0.95rem; }
         h1, h3 { margin-top: 0; }
         p { color: var(--muted); }
@@ -490,14 +493,14 @@ class WebServer:
         <div class="card">
             <h3>Effekte</h3>
             <div class="grid">
-                <button onclick="setEffect('SolidColor')">Einfarbig</button>
-                <button onclick="setEffect('LarsonScanner')">Larson-Scanner</button>
-                <button onclick="setEffect('Rainbow')">Regenbogen</button>
-                <button onclick="setEffect('WanderingSpots')">Wandernde Punkte</button>
-                <button onclick="setEffect('LavaLamp')">Lavalampe</button>
-                <button onclick="setEffect('Sparkle')">Funkeln</button>
-                <button onclick="setEffect('Pulse')">Pulsieren</button>
-                <button onclick="setEffect('FadingSparkle')">Verblassendes Funkeln</button>
+                <button id="btn-SolidColor" type="button" onclick="setEffect('SolidColor')">Einfarbig</button>
+                <button id="btn-LarsonScanner" type="button" onclick="setEffect('LarsonScanner')">Larson-Scanner</button>
+                <button id="btn-Rainbow" type="button" onclick="setEffect('Rainbow')">Regenbogen</button>
+                <button id="btn-WanderingSpots" type="button" onclick="setEffect('WanderingSpots')">Wandernde Punkte</button>
+                <button id="btn-LavaLamp" type="button" onclick="setEffect('LavaLamp')">Lavalampe</button>
+                <button id="btn-Sparkle" type="button" onclick="setEffect('Sparkle')">Funkeln</button>
+                <button id="btn-Pulse" type="button" onclick="setEffect('Pulse')">Pulsieren</button>
+                <button id="btn-FadingSparkle" type="button" onclick="setEffect('FadingSparkle')">Verblassendes Funkeln</button>
             </div>
         </div>
         <div class="card">
@@ -552,6 +555,12 @@ class WebServer:
                 }
                 document.getElementById('sw-pending').innerText = pending;
                 document.getElementById('boot-log-toggle').checked = !!data.debug_boot_log;
+
+                document.querySelectorAll('.grid button').forEach(b => b.classList.remove('active-effect'));
+                let activeBtn = document.getElementById('btn-' + data.effect);
+                if (activeBtn) {
+                    activeBtn.classList.add('active-effect');
+                }
             } catch(e) {}
         }
         async function setEffect(name) {
