@@ -516,6 +516,7 @@ class WebServer:
                 <button id="btn-Sparkle" type="button" onclick="setEffect('Sparkle')">Funkeln</button>
                 <button id="btn-Pulse" type="button" onclick="setEffect('Pulse')">Pulsieren</button>
                 <button id="btn-FadingSparkle" type="button" onclick="setEffect('FadingSparkle')">Verblassendes Funkeln</button>
+                <button id="btn-AutoLava" type="button" onclick="setEffect('AutoLava')">Auto-Lavalampe</button>
             </div>
         </div>
         <div class="card">

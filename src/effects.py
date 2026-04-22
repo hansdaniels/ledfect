@@ -787,3 +787,84 @@ class FadingSparkleEffect(BaseEffect):
 
     def remove_instance(self):
         self.params["num_fading"] = max(1, self.params["num_fading"] - 1)
+
+class AutoLavaEffect(LavaLampEffect):
+    def __init__(self, num_leds, num_blobs=3):
+        self.current_h = random.random()
+        self.target_h = self.current_h
+        
+        self.next_change_time = 0
+        self.transition_duration = 10000 
+        self.transition_start_time = 0
+        self.is_transitioning = False
+        
+        super().__init__(num_leds, base_color=(0,0,0), blob_color=(0,0,0), num_blobs=num_blobs)
+        self._apply_colors(self.current_h)
+
+    def update(self, time_ms):
+        if not hasattr(self, '_last_time') or self._last_time == 0:
+            self._last_time = time_ms
+            self.next_change_time = time_ms + random.randint(15000, 45000)
+            return
+
+        if time_ms == self._last_time:
+            return
+
+        dt = time_ms - self._last_time
+        self._last_time = time_ms
+
+        if time_ms >= self.next_change_time and not self.is_transitioning:
+            self.target_h = random.random()
+            while abs(self.target_h - self.current_h) < 0.2 or abs(self.target_h - self.current_h) > 0.8:
+                self.target_h = random.random()
+                
+            self.transition_start_time = time_ms
+            self.is_transitioning = True
+            
+        if self.is_transitioning:
+            progress = (time_ms - self.transition_start_time) / self.transition_duration
+            if progress >= 1.0:
+                self.current_h = self.target_h
+                self.is_transitioning = False
+                self.next_change_time = time_ms + random.randint(15000, 45000)
+                self._apply_colors(self.current_h)
+            else:
+                diff = self.target_h - self.current_h
+                if diff > 0.5: diff -= 1.0
+                elif diff < -0.5: diff += 1.0
+                
+                smooth_p = progress * progress * (3 - 2 * progress)
+                h = (self.current_h + diff * smooth_p) % 1.0
+                self._apply_colors(h)
+
+        # Update blobs manually with time scaling
+        for blob in self.blobs:
+            blob.pos += blob.velocity * (dt / 16.0)
+            if blob.pos > blob.limit:
+                blob.pos = blob.limit
+                blob.velocity *= -1
+            elif blob.pos < 0:
+                blob.pos = 0
+                blob.velocity *= -1
+        
+    def _apply_colors(self, h):
+        base_r, base_g, base_b = hsv_to_rgb(h, 1.0, 40)
+        self.params["base_color"] = (base_r, base_g, base_b)
+        
+        comp_h = (h + 0.5) % 1.0
+        comp_r, comp_g, comp_b = hsv_to_rgb(comp_h, 1.0, 255)
+        self.params["blob_color"] = (comp_r, comp_g, comp_b)
+        
+        for blob in self.blobs:
+            blob.color = (comp_r, comp_g, comp_b)
+            
+    def set_color(self, color):
+        pass
+        
+    def randomize(self):
+        self.next_change_time = 0 
+        num_blobs = random.randint(2, 5)
+        comp_h = (self.current_h + 0.5) % 1.0
+        comp_color = hsv_to_rgb(comp_h, 1.0, 255)
+        self.blobs = [self.Blob(self.num_leds, comp_color) for _ in range(num_blobs)]
+

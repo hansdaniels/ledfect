@@ -18,6 +18,7 @@ from .effects import (
     PulseEffect,
     LavaLampEffect,
     FadingSparkleEffect,
+    AutoLavaEffect,
 )
 from .web_server import WebServer
 from .wifi_manager import WiFiManager
@@ -111,6 +112,7 @@ class App:
         self.server = WebServer(self)
 
         self._render_buffer = bytearray(NUM_LEDS * 3)
+        self._render_lock = _thread.allocate_lock()
         self._render_ready = False
         self._shutdown_render = False
         self._has_written_frame = False
@@ -305,6 +307,8 @@ class App:
             effect = LavaLampEffect(NUM_LEDS)
         elif name == "FadingSparkle":
             effect = FadingSparkleEffect(NUM_LEDS)
+        elif name == "AutoLava":
+            effect = AutoLavaEffect(NUM_LEDS)
         else:
             effect = SolidColorEffect(NUM_LEDS, color=(50, 50, 50))
 
@@ -476,7 +480,7 @@ class App:
 
     async def input_loop(self):
         print("Input Loop Started")
-        effects = ["SolidColor", "LarsonScanner", "WanderingSpots", "Sparkle", "Rainbow", "Pulse", "LavaLamp", "FadingSparkle"]
+        effects = ["SolidColor", "LarsonScanner", "WanderingSpots", "Sparkle", "Rainbow", "Pulse", "LavaLamp", "FadingSparkle", "AutoLava"]
         cnt = 0
         while True:
             if self.maintenance_mode:
@@ -524,7 +528,7 @@ class App:
 
                 effects = [
                     "SolidColor", "LarsonScanner", "WanderingSpots",
-                    "Sparkle", "Rainbow", "Pulse", "LavaLamp", "FadingSparkle"
+                    "Sparkle", "Rainbow", "Pulse", "LavaLamp", "FadingSparkle", "AutoLava"
                 ]
 
                 ir_mapping = {
@@ -567,7 +571,7 @@ class App:
         self.reset_activity()
         effects = [
             "SolidColor", "LarsonScanner", "WanderingSpots",
-            "Sparkle", "Rainbow", "Pulse", "LavaLamp", "FadingSparkle"
+            "Sparkle", "Rainbow", "Pulse", "LavaLamp", "FadingSparkle", "AutoLava"
         ]
 
         # Map 0_10+ from code to HTML notation 0/10+ if needed, or unify
