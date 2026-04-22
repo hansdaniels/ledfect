@@ -33,6 +33,8 @@ PIN_IR = 14
 PIN_LIGHT = 21
 PIN_BUZZER = 19
 PIN_RELAY = 7
+RELAY_NORMALLY_CLOSED = False
+RELAY_ACTIVE_LOW = True
 
 NUM_LEDS = 300
 PIR_TIMEOUT_SECONDS = 5 * 60
@@ -79,7 +81,12 @@ class App:
         self.ir = IRReceiver(PIN_IR)
         self.light = LightSensor(PIN_LIGHT)
         self.buzzer = Buzzer(PIN_BUZZER)
-        self.relay = Relay(PIN_RELAY, initial_on=True)
+        self.relay = Relay(
+            PIN_RELAY,
+            initial_on=True,
+            normally_closed=RELAY_NORMALLY_CLOSED,
+            active_low=RELAY_ACTIVE_LOW,
+        )
 
         self.buffer = bytearray(NUM_LEDS * 3)
         self.blank_buffer = bytearray(NUM_LEDS * 3)

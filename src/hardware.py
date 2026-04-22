@@ -29,9 +29,10 @@ class StripController:
 
 
 class Relay:
-    def __init__(self, pin_num, initial_on=True, normally_closed=False):
+    def __init__(self, pin_num, initial_on=True, normally_closed=False, active_low=False):
         self.pin = machine.Pin(pin_num, machine.Pin.OUT)
         self.normally_closed = normally_closed
+        self.active_low = active_low
         self._is_on = None
         if initial_on:
             self.on()
@@ -39,10 +40,9 @@ class Relay:
             self.off()
 
     def _set_power_state(self, is_on):
-        if self.normally_closed:
-            self.pin.value(0 if is_on else 1)
-        else:
-            self.pin.value(1 if is_on else 0)
+        relay_energized = not is_on if self.normally_closed else is_on
+        control_high = not relay_energized if self.active_low else relay_energized
+        self.pin.value(1 if control_high else 0)
         self._is_on = is_on
 
     def on(self):
