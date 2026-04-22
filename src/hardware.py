@@ -27,6 +27,33 @@ class StripController:
             self.np[i] = val
         self.np.write()
 
+
+class Relay:
+    def __init__(self, pin_num, initial_on=True, normally_closed=False):
+        self.pin = machine.Pin(pin_num, machine.Pin.OUT)
+        self.normally_closed = normally_closed
+        self._is_on = None
+        if initial_on:
+            self.on()
+        else:
+            self.off()
+
+    def _set_power_state(self, is_on):
+        if self.normally_closed:
+            self.pin.value(0 if is_on else 1)
+        else:
+            self.pin.value(1 if is_on else 0)
+        self._is_on = is_on
+
+    def on(self):
+        self._set_power_state(True)
+
+    def off(self):
+        self._set_power_state(False)
+
+    def is_on(self):
+        return self._is_on
+
 class Button:
     def __init__(self, pin_num, name, long_press_ms=1000):
         self.pin = machine.Pin(pin_num, machine.Pin.IN, machine.Pin.PULL_UP)

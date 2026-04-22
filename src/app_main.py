@@ -8,7 +8,7 @@ import boot_log
 import slot_manager
 
 from .config import ConfigManager
-from .hardware import StripController, Button, PIRSensor, IRReceiver, LightSensor, Buzzer
+from .hardware import StripController, Button, PIRSensor, IRReceiver, LightSensor, Buzzer, Relay
 from .effects import (
     SolidColorEffect,
     LarsonScannerEffect,
@@ -31,6 +31,7 @@ PIN_PIR = 15
 PIN_IR = 14
 PIN_LIGHT = 21
 PIN_BUZZER = 19
+PIN_RELAY = 7
 
 NUM_LEDS = 300
 PIR_TIMEOUT_SECONDS = 5 * 60
@@ -77,6 +78,7 @@ class App:
         self.ir = IRReceiver(PIN_IR)
         self.light = LightSensor(PIN_LIGHT)
         self.buzzer = Buzzer(PIN_BUZZER)
+        self.relay = Relay(PIN_RELAY, initial_on=True)
 
         self.buffer = bytearray(NUM_LEDS * 3)
         self.blank_buffer = bytearray(NUM_LEDS * 3)
@@ -112,6 +114,7 @@ class App:
         self._render_ready = False
         self._shutdown_render = False
         self._has_written_frame = False
+        self._power_on_refresh_pending = False
         _thread.start_new_thread(self._render_worker, ())
         boot_log.log("app init done {}".format(self.slot_name))
 
@@ -125,8 +128,12 @@ class App:
                 continue
 
             if self._render_ready:
-                self.strip.write(self._render_buffer)
-                self._render_ready = False
+                self._render_lock.acquire()
+                try:
+                    self.strip.write(self._render_buffer)
+                    self._render_ready = False
+                finally:
+                    self._render_lock.release()
             else:
                 time.sleep_ms(2)
 
@@ -140,13 +147,60 @@ class App:
         if self.buzzer.is_enabled():
             asyncio.create_task(self.buzzer.beep(duration_ms=duration_ms))
 
+    def _turn_strip_power_on(self, force_refresh=False):
+        was_on = self.relay.is_on()
+        self.relay.on()
+        if not was_on:
+            print("Relay ON")
+        if force_refresh or not was_on:
+            self._has_written_frame = False
+            self._is_black_written = False
+        if (force_refresh or not was_on) and not self._power_on_refresh_pending:
+            self._power_on_refresh_pending = True
+            asyncio.create_task(self._refresh_after_power_on())
+
+    async def _refresh_after_power_on(self):
+        await asyncio.sleep_ms(120)
+        self._power_on_refresh_pending = False
+        if self._should_output_light() and self.relay.is_on():
+            self._has_written_frame = False
+            self._is_black_written = False
+
+    def _turn_strip_power_off(self):
+        self._power_on_refresh_pending = False
+        self._render_lock.acquire()
+        try:
+            self._render_buffer[:] = self.blank_buffer
+            self._render_ready = False
+            self.strip.write(self.blank_buffer)
+            self._last_written_buffer[:] = self.blank_buffer
+            self._has_written_frame = True
+            self._is_black_written = True
+        finally:
+            self._render_lock.release()
+        if self.relay.is_on():
+            print("Relay OFF")
+        self.relay.off()
+
     def _toggle_power(self):
         if self.maintenance_mode:
             return
 
+        print(
+            "Toggle power: manual_off={} timeout_off={} strict_off={} night_active={} relay_on={}".format(
+                self.is_off_manual,
+                self.is_off_due_to_timeout,
+                self.strict_off,
+                self.night_mode_active,
+                self.relay.is_on(),
+            )
+        )
+
         if getattr(self, 'strict_off', False):
             self.strict_off = False
             self.is_off_manual = False
+            self.is_off_due_to_timeout = False
+            self._turn_strip_power_on(force_refresh=True)
             print("Manual On (from strict off)")
         elif getattr(self, 'night_mode_active', False):
             self.strict_off = True
@@ -157,6 +211,8 @@ class App:
             if self.is_off_manual:
                 print("Manual Off (Night mode stands by)")
             else:
+                self.is_off_due_to_timeout = False
+                self._turn_strip_power_on(force_refresh=True)
                 print("Manual On")
 
     def _set_night_mode_armed(self, value):
@@ -382,6 +438,7 @@ class App:
             is_on = self._should_output_light()
 
             if is_on:
+                self._turn_strip_power_on()
                 if self.current_effect:
                     if not getattr(self, "is_paused", False):
                         self.logical_time += dt_real * getattr(self, "speed_scaler", 1.0)
@@ -397,18 +454,20 @@ class App:
 
                 if (not self._has_written_frame) or self.buffer != self._last_written_buffer:
                     if not self._render_ready:
-                        self._render_buffer[:] = self.buffer
-                        self._render_ready = True
-                        self._last_written_buffer[:] = self.buffer
-                        self._has_written_frame = True
+                        self._render_lock.acquire()
+                        try:
+                            if not self._render_ready:
+                                self._render_buffer[:] = self.buffer
+                                self._render_ready = True
+                                self._last_written_buffer[:] = self.buffer
+                                self._has_written_frame = True
+                        finally:
+                            self._render_lock.release()
 
                 self._is_black_written = False
             else:
                 if getattr(self, "_is_black_written", False) is False:
-                    if not self._render_ready:
-                        self._render_buffer[:] = self.blank_buffer
-                        self._render_ready = True
-                        self._is_black_written = True
+                    self._turn_strip_power_off()
 
             t1 = time.ticks_ms()
             diff = time.ticks_diff(t1, t0)
@@ -605,7 +664,7 @@ class App:
                 if time.time() - self.last_motion_time > PIR_TIMEOUT_SECONDS:
                     print("No motion for 5m. Turning off.")
                     self.is_off_due_to_timeout = True
-                    self.strip.write(bytearray(NUM_LEDS * 3))
+                    self._turn_strip_power_off()
             elif not self.pir_timeout_enabled and self.is_off_due_to_timeout:
                 self.is_off_due_to_timeout = False
 
